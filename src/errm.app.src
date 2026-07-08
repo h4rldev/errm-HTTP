@@ -1,0 +1,10 @@
+{application, errm, [
+  {description, "Errm.. HTTP, an erlang library for HTTP/1.1 that's easy to use."},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications, [kernel, stdlib]},
+  {mod, {errm_sup, []}},
+  {env, []},
+  {licenses, ["BSD-3"]},
+  {links, [{"Codeberg", "https://codeberg.org/h4rl/errm-HTTP"}]}
+]}.

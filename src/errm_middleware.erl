@@ -1,0 +1,9 @@
+-module(errm_middleware).
+-export([run/3]).
+-include("errm.hrl").
+
+-spec run([middleware()], request(), fun(() -> route_result())) -> route_result().
+run([], _Req, Next) ->
+  Next();
+run([Mw | Rest], Req, Next) ->
+  Mw(Req, fun() -> run(Rest, Req, Next) end).
