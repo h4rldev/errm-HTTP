@@ -12,8 +12,8 @@ Check [test/errm_demo_server.erl](test/errm_demo_server.erl) for a simple exampl
 
 ## TODOs
 
-- [] - Documentation.
-- [] - Declutter.
+- [ ] - Documentation.
+- [ ] - Declutter.
 
 ## License
 
