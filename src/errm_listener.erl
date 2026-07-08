@@ -20,12 +20,17 @@ start_link(Options) ->
 -spec init(options()) -> {ok, #state{}} | {stop, term()}.
 init(Options) ->
   process_flag(trap_exit, true),
-  Port = maps:get(port, Options, 8080),
-  Routes = maps:get(routes, Options, []),
-  Middleware = maps:get(middleware, Options, []),
-  Schedulers = erlang:system_info(schedulers_online),
-  AcqCount = maps:get(acceptor_count, Options, Schedulers * 2),
-  RouteTree = errm_router:compile(Routes),
+  Port        = maps:get(port, Options, 8080),
+  Routes      = maps:get(routes, Options, []),
+  MW0         = maps:get(middleware, Options, []),
+  Server      = maps:get(server_name, Options, undefined),
+  Schedulers  = erlang:system_info(schedulers_online),
+  AcqCount    = maps:get(acceptor_count, Options, Schedulers * 2),
+  RouteTree   = errm_router:compile(Routes),
+  Middleware = case Server of
+    undefined -> MW0;
+    SName     -> [server_middleware(SName) | MW0]
+  end,
 
   case gen_tcp:listen(Port, [binary, {packet, raw}, {active, false}, {reuseaddr, true}, {nodelay, true}, {send_timeout, 30000}, {keepalive, true}, {backlog, 1024}]) of
     {ok, ListenSock} ->
@@ -70,3 +75,15 @@ terminate(_Reason, #state{listen_sock=Sock}) -> gen_tcp:close(Sock), ok.
 spawn_acceptor(ListenSock, Routes, Middleware) ->
   spawn_link(fun() -> errm_acceptor:accept_loop(ListenSock, Routes, Middleware) end).
 
+
+server_middleware(Server) ->
+    fun(_Req, Next) ->
+        case Next() of
+            {ok, {Status, Headers, Body}} ->
+                case maps:is_key("server", Headers) of
+                    true   -> {ok, {Status, Headers, Body}};
+                    false  -> {ok, {Status, Headers#{"server" => Server}, Body}}
+                end;
+            Other -> Other
+        end
+    end.

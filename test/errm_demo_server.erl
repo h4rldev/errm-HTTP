@@ -8,7 +8,7 @@ start() ->
 -spec start(pos_integer()) -> {ok, pid()}.
 start(Port) ->
   Routes = [
-    {get, ["/"], fun index_handler/1},
+    {get, [":path*"], errm_file:serve_dir("site-root")},
     {get, ["hello"], fun hello_handler/1},
     {get, ["users", ":id"], fun user_handler/1}
   ],
@@ -23,6 +23,7 @@ start(Port) ->
   }),
 
   {ok, Pid} = errm:start(#{
+      server_name => "errm... HTTP!",
       port => Port,
       routes => Routes,
       middleware => [CORS]
@@ -32,14 +33,14 @@ start(Port) ->
   io:format("\t GET /          -> index~n"),
   io:format("\t GET /hello     -> hello~n"),
   io:format("\t GET /users/:id -> Get a user~n"),
+
   {ok, Pid}.
 
 stop() ->
   errm:stop(),
   io:format("Server stopped~n").
 
-
-index_handler(_Req) -> {ok, {200, #{"content-type" => "text/html"}, "<h1>Hello World, This server is running on errm... HTTP!</h1>"}}.
+%% index_handler(_Req) -> {ok, {200, #{"content-type" => "text/html"}, "<h1>Hello World, This server is running on errm... HTTP!</h1>"}}.
 hello_handler(_Req) -> {ok, {200, #{"content-type" => "text/plain"}, "Hello, World!"}}.
 user_handler(#{params := #{"id" := Id}}) ->
   Id1 = binary_to_integer(Id),

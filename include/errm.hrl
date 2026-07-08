@@ -27,11 +27,13 @@
 -type route_trie_node() :: #{
   handlers => #{method() => route_handler()},
   static => #{binary() => route_trie_node()},
-  dynamic => [{binary(), route_trie_node()}]
+  dynamic => [{binary(), route_trie_node()}],
+  wildcard => #{method() => {binary(), route_handler()}}
 }.
 
 
 -type options() :: #{
+    server_name => unicode:chardata(),
     port => non_neg_integer(),
     routes => [route()],
     middleware => [middleware()],

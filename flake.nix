@@ -18,10 +18,16 @@
       buildInputs = with pkgs; [
         beamPackages.erlang
         beamPackages.rebar3
+        file
       ];
 
       packages = with pkgs; [
         erlang-language-platform
+
+        clang-tools
+        bear
+
+        just
       ];
     };
   };

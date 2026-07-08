@@ -53,12 +53,10 @@ send_response(Sock, {ok, {Status, Headers, Body}}) ->
   HasCL = maps:is_key(~"content-length", Normalized),
   case not HasTE andalso not HasCL andalso BodySize >= 8192 of
     true ->
-      %% Chunked — send in multiple TCP frames
       gen_tcp:send(Sock, errm_response:build_headers(Status, Headers, BodySize)),
       send_chunked(Sock, iolist_to_binary(Body), 4096),
       gen_tcp:send(Sock, errm_response:final_chunk());
     false ->
-      %% Single send (content-length)
       gen_tcp:send(Sock, errm_response:build(Status, Headers, Body))
   end;
 send_response(Sock, {error, not_found}) ->
