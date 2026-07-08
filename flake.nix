@@ -13,8 +13,8 @@
     pkgs = import nixpkgs {inherit system;};
     beamPackages = pkgs.beamPackages;
 
-    errm = beamPackages.buildRebar3 {
-      name = "errm-HTTP";
+    errm-prod = beamPackages.buildRebar3 {
+      name = "errm-http";
       version = "0.1.0";
 
       src = ./.;
@@ -22,9 +22,32 @@
       buildPlugins = [beamPackages.pc];
       buildInputs = with pkgs; [file];
       beamDeps = [];
+
+      env = {
+        REBAR_PROFILE = "prod";
+      };
+    };
+
+    errm-debug = beamPackages.buildRebar3 {
+      name = "errm-http";
+      version = "0.1.0";
+
+      src = ./.;
+
+      buildPlugins = [beamPackages.pc];
+      buildInputs = with pkgs; [file];
+      beamDeps = [];
+
+      env = {
+        REBAR_PROFILE = "debug";
+      };
     };
   in {
-    packages.${system}.default = errm;
+    packages.${system} = {
+      errm-prod = errm-prod;
+      default = errm-prod;
+      errm-debug = errm-debug;
+    };
 
     devShells.${system}.default = pkgs.mkShell {
       name = "errm-HTTP";
