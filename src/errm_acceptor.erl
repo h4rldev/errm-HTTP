@@ -1,6 +1,6 @@
 -module(errm_acceptor).
 -export([accept_loop/3]).
--include("errm.hrl").
+-include("include/errm.hrl").
 
 -spec accept_loop(gen_tcp:socket(), route_trie_node(), [middleware()]) -> no_return().
 accept_loop(ListenSock, RouteTree, Middleware) ->

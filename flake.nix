@@ -11,7 +11,21 @@
   }: let
     system = "x86_64-linux";
     pkgs = import nixpkgs {inherit system;};
+    beamPackages = pkgs.beamPackages;
+
+    errm = beamPackages.buildRebar3 {
+      name = "errm-HTTP";
+      version = "0.1.0";
+
+      src = ./.;
+
+      buildPlugins = [beamPackages.pc];
+      buildInputs = with pkgs; [file];
+      beamDeps = [];
+    };
   in {
+    packages.${system}.default = errm;
+
     devShells.${system}.default = pkgs.mkShell {
       name = "errm-HTTP";
 

@@ -1,6 +1,8 @@
 .direnv
 *.beam
 _build
+result
+
 priv
 *.d
 *.o

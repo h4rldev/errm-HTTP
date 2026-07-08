@@ -1,6 +1,6 @@
 -module(errm).
 -export([start/1, stop/0]).
--include("errm.hrl").
+-include("include/errm.hrl").
 
 -spec start(options()) -> {ok, pid()} | {error, term()}.
 start(Options) ->

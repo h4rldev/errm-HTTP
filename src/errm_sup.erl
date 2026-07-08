@@ -1,7 +1,7 @@
 -module(errm_sup).
 -behaviour(supervisor).
 -export([start_link/1, init/1, stop/0]).
--include("errm.hrl").
+-include("include/errm.hrl").
 
 -spec start_link(options()) -> {ok, pid()} | ignore | {error, term()}.
 start_link(Options) ->

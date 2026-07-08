@@ -1,6 +1,6 @@
 -module(errm_response).
 -export([build/3, build_headers/3, encode_chunk/1, final_chunk/0]).
--include("errm.hrl").
+-include("include/errm.hrl").
 
 -define(CRLF, ~"\r\n").
 

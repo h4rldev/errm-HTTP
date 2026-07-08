@@ -1,6 +1,6 @@
 -module(errm_handler).
 -export([handle_connection/4]).
--include("errm.hrl").
+-include("include/errm.hrl").
 
 -spec handle_connection(gen_tcp:socket(), {inet:ip_address(), inet:port_number()}, route_trie_node(), [middleware()]) -> ok.
   handle_connection(ClientSock, Peer, RouteTree, Middleware) ->
