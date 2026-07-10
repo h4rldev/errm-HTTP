@@ -1,6 +1,6 @@
 # Errm... HTTP!
 
-A small library in erlang that handles HTTP/1.1 requests with handlers.
+A small library in erlang that handles HTTP/1.1 requests with handlers, middlewares, and more.
 
 ## Dependencies
 
@@ -13,6 +13,8 @@ Check [example/errm_http_demo_server.erl](example/errm_http_demo_server.erl) for
 
 ## TODOs
 
+- [ ] - Compression.
+- [ ] - Cookies.
 - [ ] - Documentation.
 - [ ] - Declutter.
 
