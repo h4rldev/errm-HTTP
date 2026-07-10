@@ -1,6 +1,6 @@
--module(errm_file).
+-module(errm_http_file).
 -export([serve_file/2, serve_dir/1, serve_dir/2]).
--include("include/errm.hrl").
+-include("include/errm_http.hrl").
 
 -spec serve_file(Root :: unicode:chardata(), FilePath :: unicode:chardata()) ->
   route_handler().
@@ -73,7 +73,7 @@ safe_path(Root, Path) ->
   lists:prefix(RootParts, PathParts).
 
 detect_mime(Path) ->
-  case errm_magic_nif:get_mime_type(Path) of
+  case errm_http_magic_nif:get_mime_type(Path) of
     {ok, Mime} -> Mime;
     {error, _} -> "application/octet-stream"
   end.

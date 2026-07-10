@@ -1,6 +1,6 @@
--module(errm_cors).
+-module(errm_http_cors).
 -export([make/1]).
--include("include/errm.hrl").
+-include("include/errm_http.hrl").
 
 -type cors_origin() :: unicode:chardata() | [unicode:chardata()] | fun((unicode:chardata()) -> boolean()).
 -type cors_opts() :: #{

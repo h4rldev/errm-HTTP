@@ -1,6 +1,6 @@
--module(errm_router).
+-module(errm_http_router).
 -export([compile/1, dispatch/2]).
--include("include/errm.hrl").
+-include("include/errm_http.hrl").
 
 -spec compile([route()]) -> route_trie_node().
 compile(Routes) ->
@@ -76,8 +76,9 @@ dispatch(Node, Request = #{method := Method, path := Path}) ->
           io:format("[errm] Error handling request: ~p:~p~n~p~n", [Class, Reason, Stacktrace]),
           {error, internal_error}
       end;
-    {method_mismatch, _Params} ->
-      {error, method_not_allowed};
+    {method_mismatch, _Params} -> {error, method_not_allowed};
+    {internal_error, _Params} ->
+      {error, internal_error};
     not_found ->
       {error, not_found}
   end.
@@ -112,11 +113,7 @@ try_other_matches(Node, Method, [Segment | Rest], Params) ->
   try_dynamic(Dynamics, Method, Rest, Segment, Params, Node).
 
 try_dynamic([{ParamName, Child} | RestDyn], Method, Segments, Segment, Params, Node) ->
-  Key = case ParamName of
-    B when is_binary(B) -> binary_to_list(B);
-    S -> S
-  end,
-  case lookup(Child, Method, Segments, Params#{Key => Segment}) of
+  case lookup(Child, Method, Segments, add_param(Params, ParamName, Segment)) of
     not_found -> try_dynamic(RestDyn, Method, Segments, Segment, Params, Node);
     {method_mismatch, _} = MM -> MM;
     {ok, _, _} = OK -> OK
@@ -130,11 +127,7 @@ try_wildcard(Node, Method, Segment, RemainingSegments, Params) ->
     {ok, {ParamName, Handler}} ->
       AllSegments = [Segment | RemainingSegments],
       Joined = iolist_to_binary(string:join([binary_to_list(S) || S <- AllSegments], "/")),
-      Key = case ParamName of
-        B when is_binary(B) -> binary_to_list(B);
-        S -> S
-      end,
-      {ok, Params#{Key => Joined}, Handler};
+      {ok, add_param(Params, ParamName, Joined), Handler};
     error ->
       not_found
   end.
@@ -142,16 +135,13 @@ try_wildcard(Node, Method, Segment, RemainingSegments, Params) ->
 try_wildcard_on_empty(Node, Method, Params) ->
  case maps:find(Method, maps:get(wildcard, Node, #{})) of
     {ok, {ParamName, Handler}} ->
-      Key = case ParamName of
-        B when is_binary(B) -> binary_to_list(B);
-        S -> S
-      end,
-      {ok, Params#{Key => <<>>}, Handler};   %% empty path → empty string
+      {ok, add_param(Params, ParamName, <<>>), Handler};   %% empty path → empty string
     error ->
       not_found
   end.
 
-
+add_param(Params, Key, Value) when is_binary(Key) ->
+    Params#{Key => Value, binary_to_list(Key) => Value}.
 is_wildcard(Bin) ->
   binary:last(Bin) =:= $*.
 

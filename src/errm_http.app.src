@@ -1,4 +1,4 @@
-{application, errm, [
+{application, errm_http, [
   {description, "Errm.. HTTP, an erlang library for HTTP/1.1 that's easy to use."},
   {vsn, "0.1.0"},
   {registered, []},

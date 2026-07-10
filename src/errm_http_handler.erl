@@ -1,6 +1,6 @@
--module(errm_handler).
+-module(errm_http_handler).
 -export([handle_connection/4]).
--include("include/errm.hrl").
+-include("include/errm_http.hrl").
 
 -spec handle_connection(gen_tcp:socket(), {inet:ip_address(), inet:port_number()}, route_trie_node(), [middleware()]) -> ok.
   handle_connection(ClientSock, Peer, RouteTree, Middleware) ->
@@ -25,11 +25,11 @@ request_loop(ClientSock, Peer, RouteTree, Middleware, Buffer) ->
   end.
 
 handle_data(Sock, Peer, RouteTree, Middleware, Data) ->
-  case errm_request:parse(Data) of
+  case errm_http_request:parse(Data) of
     {ok, Request, Rest} ->
       Request2 = Request#{peer => Peer},
-      Result = errm_middleware:run(Middleware, Request2, fun() ->
-        errm_router:dispatch(RouteTree, Request2)
+      Result = errm_http_middleware:run(Middleware, Request2, fun() ->
+        errm_http_router:dispatch(RouteTree, Request2)
       end),
 
       send_response(Sock, Result),
@@ -53,24 +53,24 @@ send_response(Sock, {ok, {Status, Headers, Body}}) ->
   HasCL = maps:is_key(~"content-length", Normalized),
   case not HasTE andalso not HasCL andalso BodySize >= 8192 of
     true ->
-      gen_tcp:send(Sock, errm_response:build_headers(Status, Headers, BodySize)),
+      gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
       send_chunked(Sock, iolist_to_binary(Body), 4096),
-      gen_tcp:send(Sock, errm_response:final_chunk());
+      gen_tcp:send(Sock, errm_http_response:final_chunk());
     false ->
-      gen_tcp:send(Sock, errm_response:build(Status, Headers, Body))
+      gen_tcp:send(Sock, errm_http_response:build(Status, Headers, Body))
   end;
 send_response(Sock, {error, not_found}) ->
   B = ~"Not Found",
-  gen_tcp:send(Sock, errm_response:build(404, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  gen_tcp:send(Sock, errm_http_response:build(404, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_response(Sock, {error, method_not_allowed}) ->  %% ← add
   B = ~"Method Not Allowed",
-  gen_tcp:send(Sock, errm_response:build(405, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  gen_tcp:send(Sock, errm_http_response:build(405, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_response(Sock, {error, internal_error}) ->      %% ← add
   B = ~"Internal Server Error",
-  gen_tcp:send(Sock, errm_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  gen_tcp:send(Sock, errm_http_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_response(Sock, {error, bad_request}) ->
   B = ~"Bad Request",
-  gen_tcp:send(Sock, errm_response:build(400, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B)).
+  gen_tcp:send(Sock, errm_http_response:build(400, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B)).
 
 normalize_conn(Conn) when is_binary(Conn) ->
     case string:lowercase(Conn) of
@@ -94,10 +94,10 @@ send_chunked(_Sock, <<>>, _ChunkSize) -> ok;
 send_chunked(Sock, Body, ChunkSize) ->
   case byte_size(Body) =< ChunkSize of
     true ->
-      gen_tcp:send(Sock, errm_response:encode_chunk(Body));
+      gen_tcp:send(Sock, errm_http_response:encode_chunk(Body));
     false ->
       <<Chunk:ChunkSize/binary, Rest/binary>> = Body,
-      gen_tcp:send(Sock, errm_response:encode_chunk(Chunk)),
+      gen_tcp:send(Sock, errm_http_response:encode_chunk(Chunk)),
       send_chunked(Sock, Rest, ChunkSize)
   end.
 

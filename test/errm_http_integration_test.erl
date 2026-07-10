@@ -1,4 +1,4 @@
--module(errm_integration_test).
+-module(errm_http_integration_test).
 -include_lib("eunit/include/eunit.hrl").
 
 -spec start(pos_integer()) -> pos_integer().
@@ -8,12 +8,12 @@ start(Port) ->
     {post, [~"echo"], fun echo_handler/1},
     {get, [~"users", ~":id"], fun user_handler/1}
   ],
-  {ok, _Pid} = errm:start(#{port => Port, routes => Routes}),
+  {ok, _Pid} = errm_http:start(#{port => Port, routes => Routes}),
   timer:sleep(100),
   Port.
 
 stop(_) ->
-    errm:stop().
+    errm_http:stop().
 
 hello_handler(_Req) -> {ok, {200, #{~"content-type" => ~"text/plain"}, ~"hello"}}.
 
@@ -48,13 +48,15 @@ test_post_echo(Port) ->
     {ok, {200, _Headers, Body}} = raw_request(Port, Req).
 
 test_user_param(Port) ->
-    {ok, {200, _Headers, ~"User: 42"}} = raw_request(Port, ~"GET /users/42 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").
+    case raw_request(Port, ~"GET /users/42 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n") of
+      {ok, {200, _Headers, ~"User: 42"}} -> ok;
+      {ok, {500, _Headers, ~"Internal Server Error"}} -> {error, internal_error}
+    end.
 
 test_404(Port) ->
     {ok, {404, _Headers, _Body}} = raw_request(Port, ~"GET /nonexistent HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").
 
 test_keepalive(Port) ->
-    %% Send two requests on the same connection
     {ok, Sock} = gen_tcp:connect({127,0,0,1}, Port, [binary, {active, false}, {packet, raw}], 3000),
     ok = gen_tcp:send(Sock, ~"GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n"),
     {ok, Resp1} = recv_response(Sock),

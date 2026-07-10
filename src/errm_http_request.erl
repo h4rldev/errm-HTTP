@@ -1,6 +1,6 @@
--module(errm_request).
+-module(errm_http_request).
 -export([parse/1]).
--include("include/errm.hrl").
+-include("include/errm_http.hrl").
 
 -define(CRLF, ~"\r\n").
 -define(CRLF_CRLF, ~"\r\n\r\n").

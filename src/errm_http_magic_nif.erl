@@ -1,12 +1,12 @@
--module(errm_magic_nif).
+-module(errm_http_magic_nif).
 -export([get_mime_type/1]).
 -on_load(init/0).
 
 -spec init() -> ok.
 init() ->
   SoPath0 = case code:priv_dir(?MODULE) of
-    {error, bad_name} -> filename:join([".", "priv", "errm_magic_nif"]);
-    PrivDir -> filename:join([PrivDir, "errm_magic_nif"])
+    {error, bad_name} -> filename:join([".", "priv", "errm_http_magic_nif"]);
+    PrivDir -> filename:join([PrivDir, "errm_http_magic_nif"])
   end,
 
   SoPath = case SoPath0 of

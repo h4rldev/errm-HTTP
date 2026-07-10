@@ -1,5 +1,5 @@
--ifndef(ERRM_HRL).
--define(ERRM_HRL, true).
+-ifndef(ERRM_HTTP_HRL).
+-define(ERRM_HTTP_HRL, true).
 
 -type method() :: get | post | put | delete | patch | options | head.
 -type path() :: [unicode:chardata()].

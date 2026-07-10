@@ -1,6 +1,6 @@
--module(errm_middleware).
+-module(errm_http_middleware).
 -export([run/3]).
--include("errm.hrl").
+-include("include/errm_http.hrl").
 
 -spec run([middleware()], request(), fun(() -> route_result())) -> route_result().
 run([], _Req, Next) ->

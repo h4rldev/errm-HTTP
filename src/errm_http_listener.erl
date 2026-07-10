@@ -1,8 +1,8 @@
--module(errm_listener).
+-module(errm_http_listener).
 -behaviour(gen_server).
 -export([start_link/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
--include("include/errm.hrl").
+-include("include/errm_http.hrl").
 
 -record(state, {
   listen_sock :: gen_tcp:socket() | undefined,
@@ -26,7 +26,7 @@ init(Options) ->
   Server      = maps:get(server_name, Options, undefined),
   Schedulers  = erlang:system_info(schedulers_online),
   AcqCount    = maps:get(acceptor_count, Options, Schedulers * 2),
-  RouteTree   = errm_router:compile(Routes),
+  RouteTree   = errm_http_router:compile(Routes),
   Middleware = case Server of
     undefined -> MW0;
     SName     -> [server_middleware(SName) | MW0]
@@ -73,7 +73,7 @@ terminate(_Reason, #state{listen_sock=Sock}) -> gen_tcp:close(Sock), ok.
 
 -spec spawn_acceptor(gen_tcp:socket(), route_trie_node(), [middleware()]) -> pid().
 spawn_acceptor(ListenSock, Routes, Middleware) ->
-  spawn_link(fun() -> errm_acceptor:accept_loop(ListenSock, Routes, Middleware) end).
+  spawn_link(fun() -> errm_http_acceptor:accept_loop(ListenSock, Routes, Middleware) end).
 
 
 server_middleware(Server) ->

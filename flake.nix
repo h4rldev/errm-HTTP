@@ -14,8 +14,8 @@
     beamPackages = pkgs.beamPackages;
 
     errm-prod = beamPackages.buildRebar3 {
-      name = "errm-http";
-      version = "0.1.0";
+      name = "errm-HTTP";
+      version = "0.1.0-prod";
 
       src = ./.;
 
@@ -29,8 +29,8 @@
     };
 
     errm-debug = beamPackages.buildRebar3 {
-      name = "errm-http";
-      version = "0.1.0";
+      name = "errm-HTTP";
+      version = "0.1.0-debug";
 
       src = ./.;
 
@@ -44,9 +44,9 @@
     };
   in {
     packages.${system} = {
-      errm-prod = errm-prod;
+      errm-http-prod = errm-prod;
       default = errm-prod;
-      errm-debug = errm-debug;
+      errm-http-debug = errm-debug;
     };
 
     devShells.${system}.default = pkgs.mkShell {

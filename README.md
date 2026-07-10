@@ -1,4 +1,4 @@
-# Errm... HTTP
+# Errm... HTTP!
 
 A small library in erlang that handles HTTP/1.1 requests with handlers.
 
@@ -9,7 +9,7 @@ A small library in erlang that handles HTTP/1.1 requests with handlers.
 
 ## How to use
 
-Check [test/errm_demo_server.erl](test/errm_demo_server.erl) for a simple example.
+Check [example/errm_demo_server.erl](test/errm_demo_server.erl) for a simple example.
 
 ## TODOs
 

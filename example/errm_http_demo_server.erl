@@ -1,4 +1,4 @@
--module(errm_demo_server).
+-module(errm_http_demo_server).
 -export([start/0, start/1, stop/0]).
 
 -spec start() -> {ok, pid()}.
@@ -8,12 +8,12 @@ start() ->
 -spec start(pos_integer()) -> {ok, pid()}.
 start(Port) ->
   Routes = [
-    {get, [":path*"], errm_file:serve_dir("site-root")},
+    {get, [":path*"], errm_http_file:serve_dir("site-root")},
     {get, ["hello"], fun hello_handler/1},
     {get, ["users", ":id"], fun user_handler/1}
   ],
 
-  CORS = errm_cors:make(#{
+  CORS = errm_http_cors:make(#{
     origins => "*",
     methods => [get, post, put, delete, patch, options],
     headers => ["Content-Type", "Authorization", "Accept", "Origin"],
@@ -22,7 +22,7 @@ start(Port) ->
     max_age => 86400
   }),
 
-  {ok, Pid} = errm:start(#{
+  {ok, Pid} = errm_http:start(#{
       server_name => "errm... HTTP!",
       port => Port,
       routes => Routes,
@@ -37,7 +37,7 @@ start(Port) ->
   {ok, Pid}.
 
 stop() ->
-  errm:stop(),
+  errm_http:stop(),
   io:format("Server stopped~n").
 
 %% index_handler(_Req) -> {ok, {200, #{"content-type" => "text/html"}, "<h1>Hello World, This server is running on errm... HTTP!</h1>"}}.
