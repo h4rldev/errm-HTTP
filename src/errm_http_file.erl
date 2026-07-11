@@ -144,7 +144,6 @@ safe_path(Root, Path) ->
     lists:prefix(RootParts, PathParts).
 
 
-
 detect_mime(Path) ->
   Ext = case filename:extension(Path) of
     [] -> <<>>;
