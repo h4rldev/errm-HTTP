@@ -63,17 +63,23 @@ parse_headers_body(Data, Method, RawPath) ->
           CL = maps:get(~"content-length", Headers, ~"0"),
           case binary_to_integer(CL) of
             N when N =< byte_size(Body) ->
-              <<ActualBody:N/binary, Rest/binary>> = Body,
-              Req = #{
-                method   => Method,
-                raw_path => RawPath,
-                path     => path_segments(RawPath),
-                headers  => Headers,
-                body     => ActualBody,
-                params   => #{},
-                peer     => undefined
-              },
-              {ok, Req, Rest};
+              Max = persistent_term:get({errm_http, max_body_size}, 10_485_760),
+              case N > Max of
+                true ->
+                  {error, request_entity_too_large};
+                false->
+                  <<ActualBody:N/binary, Rest/binary>> = Body,
+                  Req = #{
+                    method   => Method,
+                    raw_path => RawPath,
+                    path     => path_segments(RawPath),
+                    headers  => Headers,
+                    body     => ActualBody,
+                    params   => #{},
+                    peer     => undefined
+                  },
+                  {ok, Req, Rest}
+              end;
             _NeedMore ->
               {partial, Data}
           end;

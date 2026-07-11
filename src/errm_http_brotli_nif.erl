@@ -13,7 +13,13 @@ init() ->
     List when is_list(List) -> List;
     Binary when is_binary(Binary) -> erlang:binary_to_list(Binary)
   end,
-  ok = erlang:load_nif(SoPath, 0).
+  case erlang:load_nif(SoPath, 0) of
+    ok -> ok;
+    {error, {load_failed, _}} ->
+      %% NIF not available – fallback to stubs.
+      %% Return ok so the module loads without crashing.
+      ok
+  end.
 
 -spec compress(Data :: binary(), Level :: 0..11) -> {ok, binary()}.
 compress(_Data, _Level) -> erlang:nif_error(not_loaded).

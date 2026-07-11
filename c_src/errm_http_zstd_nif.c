@@ -127,8 +127,8 @@ static erl_nif_term_t nif_decompress(erl_nif_env_t *env, i32 argc,
 }
 
 erl_nif_func_t nif_funcs[2] = {
-    {"compress", 2, nif_compress, 0},
-    {"decompress", 1, nif_decompress, 0},
+    {"compress", 2, nif_compress, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"decompress", 1, nif_decompress, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 };
 
 ERL_NIF_INIT(errm_http_zstd_nif, nif_funcs, NULL, NULL, NULL, NULL)

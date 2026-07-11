@@ -14,25 +14,31 @@ green := "\\x1b[32m"
 red := "\\x1b[31m"
 clear := "\\x1b[0m"
 
+zstd_available := shell("if pkg-config --exists libzstd 2>/dev/null; then echo yes; else echo no; fi")
+brotli_available := shell("if pkg-config --exists libbrotlienc 2>/dev/null && pkg-config --exists libbrotlidec 2>/dev/null; then echo yes; else echo no; fi")
+
 __print_yes:
-    echo -e "{{ green }}yes{{ clear }}"
+    echo -ne "{{ green }}yes{{ clear }}"
 
 __print_no:
-    echo -e "{{ red }}no{{ clear }}"
+    echo -ne "{{ red }}no{{ clear }}"
+
+__print_missing:
+    echo -e "[{{ red }}lib missing{{ clear }}]"
 
 clean_nifs:
     rm priv/*
 
 [parallel]
 [unix]
-build_nifs profile="debug": (build_magic profile) (build_zstd profile) (build_brotli profile)
+build_nifs profile="debug": (build_magic profile) (build_zstd_if_available profile) (build_brotli_if_available profile)
     echo -e "\nUsed profile: {{ green }}{{ profile }} {{ clear }}"
     echo -ne "priv/errm_http_magic_nif.so  -> exists: "
-    if [ -f "priv/errm_http_magic_nif.so" ]; then just __print_yes; else just __print_no; echo "build_failed" > "check.txt"; fi
+    if [ -f "priv/errm_http_magic_nif.so" ]; then just __print_yes; echo ''; else just __print_no; echo "build_failed" > "check.txt"; fi;
     echo -ne "priv/errm_http_zstd_nif.so   -> exists: "
-    if [ -f "priv/errm_http_zstd_nif.so" ]; then just __print_yes; else just __print_no; echo "build_failed" > "check.txt"; fi
-    echo -ne "priv/errm_http_brotli_nif    -> exists: "
-    if [ -f "priv/errm_http_brotli_nif.so" ]; then just __print_yes; else just __print_no; echo "build_failed" > "check.txt"; fi
+    if [ -f "priv/errm_http_zstd_nif.so" ]; then just __print_yes; else just __print_no; {{ if zstd_available == "yes" { "echo ''; echo 'build_failed' > 'check.txt';" } else { "echo -n ' '; just __print_missing;" } }} fi;
+    echo -ne "priv/errm_http_brotli_nif.so -> exists: "
+    if [ -f "priv/errm_http_brotli_nif.so" ]; then just __print_yes; else just __print_no; {{ if brotli_available == "yes" { "echo ''; echo 'build_failed' > 'check.txt';" } else { "echo -n ' '; just __print_missing;" } }} fi;
     if [ -f "check.txt" ]; then rm "check.txt"; echo -e "build_nifs: Some builds {{ red }}failed{{ clear }}"; fi
 
 [unix]
@@ -47,6 +53,13 @@ build_magic profile="debug":
     else \
     echo -e "c_src/errm_http_magic_nif.c  -> priv/errm_http_magic_nif.so  [{{ red }}failed{{ clear }}]"; \
     fi
+
+[unix]
+build_zstd_if_available profile="debug":
+    {{ if zstd_available == "yes" { "just build_zstd profile" } else { "echo -e 'zstd not found; skipping zstd NIF'; exit 0;" } }}
+[unix]
+build_brotli_if_available profile="debug":
+    {{ if brotli_available == "yes" { "just build_brotli profile" } else { "echo -e 'brotli not found; skipping brotli NIF'; exit 0;" } }}
 
 [unix]
 build_zstd profile="debug":

@@ -7,6 +7,11 @@ A small library in erlang that handles HTTP/1.1 requests with handlers, middlewa
 - Erlang/OTP 28 or higher.
 - libmagic, usually provided by file. (for mime guessing)
 
+## Optional dependencies
+
+- brotli (for compression)
+- zstd (for compression)
+
 ## How to use
 
 Check [example/errm_http_demo.erl](example/errm_http_demo.erl) for a simple example.

@@ -37,7 +37,7 @@ init(Options) ->
   case gen_tcp:listen(Port, [binary, {packet, raw}, {active, false}, {reuseaddr, true}, {nodelay, true}, {send_timeout, 30000}, {keepalive, true}, {backlog, 1024}]) of
     {ok, ListenSock} ->
       {ok, ActualPort} = inet:port(ListenSock),
-      io:format("[errm] Listening on port: ~p with ~p acceptors~n", [ActualPort, AcqCount]),
+      logger:debug("[errm] Listening on port: ~p with ~p acceptors", [ActualPort, AcqCount]),
       Acceptors = [spawn_acceptor(ListenSock, RouteTree, Middlewares, ErrorHandlers) || _ <- lists:seq(1, AcqCount)],
       {ok, #state{listen_sock=ListenSock, port=ActualPort, acceptors=Acceptors, routes=RouteTree, middlewares=Middlewares, error_handlers=ErrorHandlers}};
     {error, Reason} -> {stop, {cannot_listen, Reason}}
@@ -57,7 +57,7 @@ handle_info({'EXIT', Pid, Reason}, State=#state{acceptors=Accs, listen_sock=LS})
     when LS =/= undefined ->
   case lists:member(Pid, Accs) of
     true ->
-      io:format("[errm] Acceptor ~p restarted with reason \"~p\"~n", [Pid, Reason]),
+      logger:debug("[errm] Acceptor ~p restarted with reason \"~p\"~n", [Pid, Reason]),
       New = spawn_acceptor(State#state.listen_sock, State#state.routes, State#state.middlewares, State#state.error_handlers),
       Rest = [A || A <- Accs, A =/= Pid],
       {noreply, State#state{acceptors=[New | Rest]}};

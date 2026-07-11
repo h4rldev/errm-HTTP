@@ -18,12 +18,11 @@ to_binary(S) when is_list(S) -> list_to_binary(S);
 to_binary(S) -> S.
 
 is_root(<<>>)   -> true;
-is_root(~"/") -> true;       %% ← was ~"/" (string) — should be binary
+is_root(<<"/">>) -> true;
 is_root(_)      -> false.
 
 -spec insert_route(route_trie_node(), method(), path(), route_handler()) ->
     route_trie_node().
-
 insert_route(Node, Method, [], Handler) ->
   Handlers = maps:get(handlers, Node, #{}),
   Node#{handlers => Handlers#{Method => Handler}};
@@ -35,34 +34,23 @@ insert_route(Node, Method, [<<":", Rest/binary>>], Handler) ->
       Wildcards = maps:get(wildcard, Node, #{}),
       Node#{wildcard => Wildcards#{Method => {ParamName, Handler}}};
     false ->
-      %% Single dynamic param :foo
-      Dynamics = maps:get(dynamic, Node, []),
-      case lists:keyfind(Rest, 1, Dynamics) of
-        {Rest, SubNode} ->
-          Updated = insert_route(SubNode, Method, [], Handler),
-          Node#{dynamic => lists:keyreplace(Rest, 1, Dynamics, {Rest, Updated})};
-        false ->
-          SubNode = insert_route(#{}, Method, [], Handler),
-          Node#{dynamic => [{Rest, SubNode} | Dynamics]}
-      end
+      Dynamics = maps:get(dynamic, Node, #{}),
+      SubNode = maps:get(Rest, Dynamics, #{}),
+      UpdatedSub = insert_route(SubNode, Method, [], Handler),
+      Node#{dynamic => Dynamics#{Rest => UpdatedSub}}
   end;
 
 insert_route(Node, Method, [<<":", Param/binary>> | Rest], Handler) ->
-  Dynamics = maps:get(dynamic, Node, []),
-  case lists:keyfind(Param, 1, Dynamics) of
-    {Param, SubNode} ->
-      Updated = insert_route(SubNode, Method, Rest, Handler),
-      Dynamic2 = lists:keyreplace(Param, 1, Dynamics, {Param, Updated});
-    false ->
-      SubNode = insert_route(#{}, Method, Rest, Handler),
-      Dynamic2 = [{Param, SubNode} | Dynamics]
-  end,
-  Node#{dynamic => Dynamic2};
+  Dynamics = maps:get(dynamic, Node, #{}),
+  SubNode = maps:get(Param, Dynamics, #{}),
+  UpdatedSub = insert_route(SubNode, Method, Rest, Handler),
+  Node#{dynamic => Dynamics#{Param => UpdatedSub}};
 
 insert_route(Node, Method, [Segment | Rest], Handler) when is_binary(Segment) ->
   Statics = maps:get(static, Node, #{}),
   SubNode = insert_route(maps:get(Segment, Statics, #{}), Method, Rest, Handler),
   Node#{static => Statics#{Segment => SubNode}}.
+
 
 -spec dispatch(route_trie_node(), request()) -> route_result().
 dispatch(Node, Request = #{method := Method, path := Path}) ->
@@ -73,7 +61,10 @@ dispatch(Node, Request = #{method := Method, path := Path}) ->
         Result -> Result
       catch
         Class:Reason:Stacktrace ->
-          io:format("[errm] Error handling request: ~p:~p~n~p~n", [Class, Reason, Stacktrace]),
+          logger:error("[errm] Error handling request:"),
+          logger:error("[errm] ~p", [Class]),
+          logger:error("[errm] ~p", [Reason]),
+          logger:error("[errm] ~p", [Stacktrace]),
           {error, internal_error}
       end;
     {method_mismatch, _Params} -> {error, method_not_allowed};
@@ -109,18 +100,33 @@ lookup(Node, Method, [Segment | Rest], Params) ->
   end.
 
 try_other_matches(Node, Method, [Segment | Rest], Params) ->
-  Dynamics = maps:get(dynamic, Node, []),
-  try_dynamic(Dynamics, Method, Rest, Segment, Params, Node).
+    try_dynamic(Node, Method, Rest, Segment, Params).
 
-try_dynamic([{ParamName, Child} | RestDyn], Method, Segments, Segment, Params, Node) ->
-  case lookup(Child, Method, Segments, add_param(Params, ParamName, Segment)) of
-    not_found -> try_dynamic(RestDyn, Method, Segments, Segment, Params, Node);
-    {method_mismatch, _} = MM -> MM;
-    {ok, _, _} = OK -> OK
-  end;
+try_dynamic(Node, Method, Segments, Segment, Params) ->
+    Dynamics = maps:get(dynamic, Node, #{}),
+    case maps:size(Dynamics) of
+        0 ->
+            try_wildcard(Node, Method, Segment, Segments, Params);
+        _ ->
+            case try_dynamic_list(maps:to_list(Dynamics), Method, Segments, Segment, Params) of
+                not_found ->
+                    try_wildcard(Node, Method, Segment, Segments, Params);
+                Other ->
+                    Other
+            end
+    end.
 
-try_dynamic([], _Method, Remaining, Segment, Params, Node) ->
-  try_wildcard(Node, _Method, Segment, Remaining, Params).
+try_dynamic_list([], _Method, _Segments, _Segment, _Params) ->
+    not_found;
+try_dynamic_list([{ParamName, Child} | RestDyn], Method, Segments, Segment, Params) ->
+    case lookup(Child, Method, Segments, add_param(Params, ParamName, Segment)) of
+        not_found ->
+            try_dynamic_list(RestDyn, Method, Segments, Segment, Params);
+        {method_mismatch, _} = MM ->
+            MM;
+        {ok, _, _} = OK ->
+            OK
+    end.
 
 try_wildcard(Node, Method, Segment, RemainingSegments, Params) ->
   case maps:find(Method, maps:get(wildcard, Node, #{})) of
@@ -133,10 +139,11 @@ try_wildcard(Node, Method, Segment, RemainingSegments, Params) ->
   end.
 
 try_wildcard_on_empty(Node, Method, Params) ->
- case maps:find(Method, maps:get(wildcard, Node, #{})) of
-    {ok, {ParamName, Handler}} ->
-      {ok, add_param(Params, ParamName, <<>>), Handler};   %% empty path → empty string
-    error ->
+ case maps:is_key(Method, maps:get(wildcard, Node, #{})) of
+    true ->
+      {ParamName, Handler} = maps:get(Method, maps:get(wildcard, Node, #{})),
+      {ok, add_param(Params, ParamName, <<>>), Handler};
+    false ->
       not_found
   end.
 

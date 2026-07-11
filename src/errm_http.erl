@@ -6,6 +6,9 @@
 
 -spec start(Options :: options()) -> {ok, pid()} | {error, term()}.
 start(Options) ->
+  errm_http_file:init_mime_cache(),
+  MaxBodySize = maps:get(max_body_size, Options, 10_485_760),
+  persistent_term:put({errm_http, max_body_size}, MaxBodySize),
   case errm_http_sup:start_link(Options) of
     {ok, Pid} -> {ok, Pid};
     {error, Reason} -> {error, Reason}

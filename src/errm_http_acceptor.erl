@@ -13,18 +13,18 @@ accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers) ->
 
       gen_tcp:controlling_process(ClientSock, HandlerPid),
       accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers);
-    {error, _Reason} ->
-      io:format("[errm] Error accepting connection: ~p ~n", [_Reason]),
+    {error, Reason} ->
+      logger:error("[errm] Error accepting connection: ~p", [Reason]),
       accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers)
   end.
 
 
 -spec peer_address(gen_tcp:socket()) -> {inet:ip_address(), inet:port_number()}.
 peer_address(Sock) ->
-    case inet:peername(Sock) of
-        {ok, {IP, Port}} -> from_peername({IP, Port});
-        _ -> {{0,0,0,0}, 0}
-    end.
+  case inet:peername(Sock) of
+    {ok, {IP, Port}} -> from_peername({IP, Port});
+    _ -> {{0,0,0,0}, 0}
+  end.
 
 from_peername({IP, Port}) when tuple_size(IP) =:= 4 -> {IP, Port};
 from_peername({IP, Port}) when tuple_size(IP) =:= 8 -> {IP, Port};

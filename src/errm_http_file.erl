@@ -1,41 +1,100 @@
 -module(errm_http_file).
 -export([serve_file/2, serve_dir/1, serve_dir/2]).
+-export([init_mime_cache/0]).
 -include("include/errm_http.hrl").
+-include_lib("kernel/include/file.hrl").
+
+-define(MIME_TABLE, errm_http_mime_cache).
+
+init_mime_cache() ->
+  case ets:info(?MIME_TABLE) of
+    undefined ->
+      ets:new(?MIME_TABLE, [named_table, public, set, {read_concurrency, true}]),
+      load_common_mimes();
+    _ -> ok
+  end.
+
+load_common_mimes() ->
+  Common = #{
+    <<"html">>  => <<"text/html">>,
+    <<"htm">>   => <<"text/html">>,
+    <<"css">>   => <<"text/css">>,
+    <<"js">>    => <<"application/javascript">>,
+    <<"json">>  => <<"application/json">>,
+    <<"png">>   => <<"image/png">>,
+    <<"jpg">>   => <<"image/jpeg">>,
+    <<"jpeg">>  => <<"image/jpeg">>,
+    <<"gif">>   => <<"image/gif">>,
+    <<"svg">>   => <<"image/svg+xml">>,
+    <<"ico">>   => <<"image/x-icon">>,
+    <<"txt">>   => <<"text/plain">>,
+    <<"xml">>   => <<"application/xml">>,
+    <<"pdf">>   => <<"application/pdf">>,
+    <<"zip">>   => <<"application/zip">>,
+    <<"gz">>    => <<"application/gzip">>,
+    <<"br">>    => <<"application/brotli">>
+  },
+  ets:insert(?MIME_TABLE, maps:to_list(Common)).
 
 -spec serve_file(Root :: unicode:chardata(), FilePath :: unicode:chardata()) ->
-  route_handler().
+    route_handler().
 serve_file(Root, FilePath) ->
-  RootStr = to_string(Root),
-  FileStr = to_string(FilePath),
-  FullPath = filename:join([RootStr, FileStr]),
-  fun (_Req) ->
-      case file:read_file(FullPath) of
-        {ok, Data} ->
-            MimeType = detect_mime(FullPath),
-            {ok, {200, #{"content-type" => MimeType}, Data}};
+    RootStr = to_string(Root),
+    FileStr = to_string(FilePath),
+    FullPath = filename:join([RootStr, FileStr]),
+    fun(_Req) ->
+      case file:read_file_info(FullPath) of
+        {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
+          Mime = detect_mime(FullPath),
+          Headers = #{
+            <<"content-type">> => Mime,
+            <<"content-length">> => integer_to_binary(Size)
+          },
+          if
+            Size < ?ERRM_CHUNK_THRESHOLD ->
+              case file:read_file(FullPath) of
+                {ok, Data} -> {ok, {200, Headers, Data}};
+                {error, _} -> {error, not_found}
+              end;
+            true ->
+              {ok, {200, Headers, {file, FullPath}}}
+          end;
+        {ok, #file_info{type = directory}} ->
+          {error, not_found};
         {error, _} ->
           {error, not_found}
       end
-  end.
+    end.
 
 -spec serve_dir(Root :: unicode:chardata()) -> route_handler().
 serve_dir(Root) ->
-  serve_dir(Root, ["index.html", "index.htm"]).
+    serve_dir(Root, ["index.html", "index.htm"]).
 
 -spec serve_dir(Root :: unicode:chardata(), IndexFiles :: [unicode:chardata()])
-  -> route_handler().
+    -> route_handler().
 serve_dir(Root, IndexFiles) ->
   RootStr = to_string(Root),
   IndexStrs = [to_string(I) || I <- IndexFiles],
-  fun (#{params := #{"path" := Path}}) ->
+  fun(#{params := #{"path" := Path}}) ->
     case safe_join(RootStr, Path) of
       {ok, FullPath} ->
-        case file:read_file(FullPath) of
-          {ok, Data} ->
-            MimeType = detect_mime(FullPath),
-            {ok, {200, #{"content-type" => MimeType}, Data}};
-          {error, eisdir} ->
-            try_index(RootStr, FullPath, IndexStrs);
+        case file:read_file_info(FullPath) of
+          {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
+            Mime = detect_mime(FullPath),
+            Headers = #{
+              <<"content-type">> => Mime,
+              <<"content-length">> => integer_to_binary(Size)
+            },
+            if Size < ?ERRM_CHUNK_THRESHOLD ->
+              case file:read_file(FullPath) of
+                {ok, Data} -> {ok, {200, Headers, Data}};
+                {error, _} -> {error, not_found}
+              end;
+            true ->
+              {ok, {200, Headers, {file, FullPath}}}
+            end;
+          {ok, #file_info{type = directory}} ->
+            try_index_with_threshold(RootStr, FullPath, IndexStrs);
           {error, _} ->
             {error, not_found}
         end;
@@ -44,39 +103,72 @@ serve_dir(Root, IndexFiles) ->
     end
   end.
 
-safe_join(Root, Path) ->
-  Parts = string:split(Path, "/", all),
-  Segments = [to_string(S) || S <- Parts],
-  FullPath = filename:join([Root | Segments]),
-  case safe_path(Root, FullPath) of
-    true -> {ok, FullPath};
-    false -> false
+%% Internal helper: tries to serve an index file from a directory
+try_index_with_threshold(_Root, _DirPath, []) ->
+  {error, not_found};
+try_index_with_threshold(Root, DirPath, [Index | Rest]) ->
+  FullPath = filename:join([DirPath, Index]),
+  case safe_path(Root, FullPath) andalso file:read_file_info(FullPath) of
+    {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
+      Mime = detect_mime(FullPath),
+      Headers = #{
+          <<"content-type">> => Mime,
+          <<"content-length">> => integer_to_binary(Size)
+      },
+      if
+          Size < ?ERRM_CHUNK_THRESHOLD ->
+              case file:read_file(FullPath) of
+                  {ok, Data} -> {ok, {200, Headers, Data}};
+                  {error, _} -> try_index_with_threshold(Root, DirPath, Rest)
+              end;
+          true ->
+              {ok, {200, Headers, {file, FullPath}}}
+      end;
+    _ ->
+      try_index_with_threshold(Root, DirPath, Rest)
   end.
 
-try_index(_Root, _DirPath, []) ->
-  {error, not_found};
-try_index(Root, DirPath, [Index | Rest]) ->
-  FullPath = filename:join([DirPath, Index]),
-  case safe_path(Root, FullPath) andalso file:read_file(FullPath) of
-    {ok, Data} ->
-      MimeType = detect_mime(FullPath),
-      {ok, {200, #{"content-type" => MimeType}, Data}};
-    _ ->
-      try_index(Root, DirPath, Rest)
-  end.
+safe_join(Root, Path) ->
+    Parts = string:split(Path, "/", all),
+    Segments = [to_string(S) || S <- Parts],
+    FullPath = filename:join([Root | Segments]),
+    case safe_path(Root, FullPath) of
+        true -> {ok, FullPath};
+        false -> false
+    end.
 
 safe_path(Root, Path) ->
-  AbsRoot = filename:absname(Root),
-  AbsPath = filename:absname(Path),
-  RootParts = filename:split(AbsRoot),
-  PathParts = filename:split(AbsPath),
-  lists:prefix(RootParts, PathParts).
+    AbsRoot = filename:absname(Root),
+    AbsPath = filename:absname(Path),
+    RootParts = filename:split(AbsRoot),
+    PathParts = filename:split(AbsPath),
+    lists:prefix(RootParts, PathParts).
+
+
 
 detect_mime(Path) ->
-  case errm_http_magic_nif:get_mime_type(Path) of
-    {ok, Mime} -> Mime;
-    {error, _} -> "application/octet-stream"
+  Ext = case filename:extension(Path) of
+    [] -> <<>>;
+    ExtStr when is_list(ExtStr) ->
+      Bin = list_to_binary(ExtStr),
+      case Bin of
+        <<$. , Rest/binary>> -> string:lowercase(Rest);
+        _ -> string:lowercase(Bin)   %% fallback (should not happen)
+      end
+  end,
+  case ets:lookup(?MIME_TABLE, Ext) of
+    [{_, Mime}] -> Mime;
+    [] ->
+      Mime = fallback_mime(Path),
+      ets:insert(?MIME_TABLE, {Ext, Mime}),
+      Mime
   end.
+
+fallback_mime(Path) ->
+    case errm_http_magic_nif:get_mime_type(to_string(Path)) of
+        {ok, Mime} -> list_to_binary(Mime);
+        {error, _} -> <<"application/octet-stream">>
+    end.
 
 to_string(S) when is_binary(S) -> binary_to_list(S);
 to_string(S) -> S.

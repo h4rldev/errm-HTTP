@@ -56,8 +56,9 @@
         beamPackages.erlang
         beamPackages.rebar3
         file
-        zstd
-        brotli
+        # zstd
+        # brotli
+        pkg-config
       ];
 
       packages = with pkgs; [

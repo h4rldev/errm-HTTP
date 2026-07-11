@@ -3,8 +3,8 @@
 -include("include/errm_http.hrl").
 
 -spec handle_connection(ClientSock :: gen_tcp:socket(), Peer :: {inet:ip_address(), inet:port_number()}, RouteTree :: route_trie_node(), Middlewares :: [middleware()], ErrorHandlers :: error_handler_map()) -> ok.
-  handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers) ->
-    request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, <<>>).
+handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers) ->
+  request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, <<>>).
 
 request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Buffer) ->
   receive
@@ -22,7 +22,7 @@ request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Buffer) ->
     {tcp_error, Sock, closed} ->
       gen_tcp:close(Sock);
     {tcp_error, Sock, Reason} ->
-      io:format("[errm] Error handling connection: ~p ~n", [Reason]),
+      logger:error("[errm] Error handling connection: ~p", [Reason]),
       gen_tcp:close(Sock)
   end.
 
@@ -43,6 +43,9 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
 
     {partial, _} ->
       {continue, Data};
+    {error, request_entity_too_large} ->
+      send_response(Sock, ErrorHandlers, {error, request_entity_too_large}, undefined),
+      {close, Data};
     {error, _Reason} ->
       send_response(Sock, ErrorHandlers, {error, bad_request}, undefined),
       {close, Data}
@@ -50,60 +53,93 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
 
 
 send_response(Sock, _ErrorHandlers, {ok, {Status, Headers, Body}}, _Request) ->
-  BodySize = iolist_size(Body),
-  Normalized = normalize_headers(Headers),
-  HasTE = maps:is_key(~"transfer-encoding", Normalized),
-  HasCL = maps:is_key(~"content-length", Normalized),
-  case not HasTE andalso not HasCL andalso BodySize >= 8192 of
-    true ->
-      gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
-      send_chunked(Sock, iolist_to_binary(Body), 4096),
-      gen_tcp:send(Sock, errm_http_response:final_chunk());
-    false ->
-      gen_tcp:send(Sock, errm_http_response:build(Status, Headers, Body))
-  end;
+  case Body of
+    {file, FilePath} ->
+      HeaderBin = errm_http_response:build_headers(Status, Headers, 0),
+      ok = gen_tcp:send(Sock, HeaderBin),
+      sendfile(Sock, FilePath, 0, 0);
 
+    _ when is_binary(Body); is_list(Body) ->
+      BodySize = iolist_size(Body),
+      Normalized = normalize_headers(Headers),
+      HasTE = maps:is_key(<<"transfer-encoding">>, Normalized),
+      HasCL = maps:is_key(<<"content-length">>, Normalized),
+      case not HasTE andalso not HasCL andalso BodySize >= ?ERRM_CHUNK_THRESHOLD of
+        true ->
+          gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
+          send_chunked(Sock, iolist_to_binary(Body), 4096),
+          gen_tcp:send(Sock, errm_http_response:final_chunk());
+        false ->
+          gen_tcp:send(Sock, errm_http_response:build(Status, Headers, Body))
+      end
+  end;
 send_response(Sock, ErrorHandler, {error, Reason}, Request) ->
-    case maps:get(Reason, ErrorHandler, undefined) of
-        undefined ->
-            send_default_error(Sock, Reason);
-        Handler ->
-            case Handler(Request) of
-                {ok, {Status, Headers, Body}} ->
-                  BodySize = iolist_size(Body),
-                  Normalized = normalize_headers(Headers),
-                  HasTE = maps:is_key(~"transfer-encoding", Normalized),
-                  HasCL = maps:is_key(~"content-length", Normalized),
-                  case not HasTE andalso not HasCL andalso BodySize >= 8192 of
-                    true ->
-                      gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
-                      send_chunked(Sock, iolist_to_binary(Body), 4096),
-                      gen_tcp:send(Sock, errm_http_response:final_chunk());
-                    false ->
-                      gen_tcp:send(Sock, errm_http_response:build(Status, Headers, Body))
-                  end;
-                _ ->
-                    send_default_error(Sock, Reason)
-            end
-    end.
+  case maps:get(Reason, ErrorHandler, undefined) of
+    undefined ->
+      send_default_error(Sock, Reason);
+    Handler ->
+      case Handler(Request) of
+        {ok, {Status, Headers, Body}} ->
+          BodySize = iolist_size(Body),
+          Normalized = normalize_headers(Headers),
+          HasTE = maps:is_key(~"transfer-encoding", Normalized),
+          HasCL = maps:is_key(~"content-length", Normalized),
+          case not HasTE andalso not HasCL andalso BodySize >= 8192 of
+            true ->
+              gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
+              send_chunked(Sock, iolist_to_binary(Body), 4096),
+              gen_tcp:send(Sock, errm_http_response:final_chunk());
+            false ->
+              gen_tcp:send(Sock, errm_http_response:build(Status, Headers, Body))
+          end;
+        _ ->
+          send_default_error(Sock, Reason)
+      end
+  end.
+
+-spec sendfile(gen_tcp:socket(), file:filename_all(), non_neg_integer(), non_neg_integer()) -> ok.
+sendfile(Sock, FilePath, Offset, Count) ->
+  case file:open(FilePath, [read, raw, binary]) of
+    {ok, Fd} ->
+      try
+        sendfile_loop(Sock, Fd, Offset, Count)
+      after
+        file:close(Fd)
+      end;
+    {error, Reason} ->
+      logger:error("[errm] sendfile: failed to open ~s: ~p~n", [FilePath, Reason])
+  end.
+
+sendfile_loop(Sock, Fd, Offset, Count) ->
+  case file:sendfile(Fd, Sock, Offset, Count, []) of
+    {ok, 0} -> ok;
+    {ok, Sent} when Count =:= 0 ->
+      sendfile_loop(Sock, Fd, Offset + Sent, 0);
+    {ok, Sent} when Sent < Count ->
+      sendfile_loop(Sock, Fd, Offset + Sent, Count - Sent);
+    {ok, Sent} when Sent =:= Count -> ok;
+    {error, Reason} ->
+      logger:error("[errm] sendfile error: ~p", [Reason])
+  end.
+
 
 normalize_conn(Conn) when is_binary(Conn) ->
-    case string:lowercase(Conn) of
-        ~"close" -> close;
-        _           -> keep_alive
-    end;
+  case string:lowercase(Conn) of
+    ~"close" -> close;
+    _           -> keep_alive
+  end;
 normalize_conn(Conn) when is_list(Conn) ->
-    case string:lowercase(Conn) of
-        "close" -> close;
-        _       -> keep_alive
-    end;
+  case string:lowercase(Conn) of
+    "close" -> close;
+    _       -> keep_alive
+  end;
 normalize_conn(Atom) when is_atom(Atom) ->
-    case Atom of
-        close -> close;
-        _     -> keep_alive
-    end;
+  case Atom of
+    close -> close;
+    _     -> keep_alive
+  end;
 normalize_conn(_) ->
-    keep_alive.
+  keep_alive.
 
 send_chunked(_Sock, <<>>, _ChunkSize) -> ok;
 send_chunked(Sock, Body, ChunkSize) ->
@@ -125,17 +161,20 @@ to_binary(S) when is_list(S) -> list_to_binary(S);
 to_binary(S) -> S.
 
 send_default_error(Sock, not_found) ->
-    B = <<"Not Found">>,
-    gen_tcp:send(Sock, errm_http_response:build(404, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  B = <<"Not Found">>,
+  gen_tcp:send(Sock, errm_http_response:build(404, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_default_error(Sock, method_not_allowed) ->
-    B = <<"Method Not Allowed">>,
-    gen_tcp:send(Sock, errm_http_response:build(405, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  B = <<"Method Not Allowed">>,
+  gen_tcp:send(Sock, errm_http_response:build(405, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_default_error(Sock, internal_error) ->
-    B = <<"Internal Server Error">>,
-    gen_tcp:send(Sock, errm_http_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  B = <<"Internal Server Error">>,
+  gen_tcp:send(Sock, errm_http_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_default_error(Sock, bad_request) ->
-    B = <<"Bad Request">>,
-    gen_tcp:send(Sock, errm_http_response:build(400, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+  B = <<"Bad Request">>,
+  gen_tcp:send(Sock, errm_http_response:build(400, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
+send_default_error(Sock, request_entity_too_large) ->
+  B = <<"Payload Too Large">>,
+  gen_tcp:send(Sock, errm_http_response:build(413, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_default_error(Sock, _) ->
-    B = <<"Internal Server Error">>,
-    gen_tcp:send(Sock, errm_http_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B)).
+  B = <<"Internal Server Error">>,
+  gen_tcp:send(Sock, errm_http_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B)).
