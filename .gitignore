@@ -7,5 +7,6 @@ result
 priv
 *.d
 *.o
+*.dump
 *.crashdump
-compile-commands.json
+compile_commands.json

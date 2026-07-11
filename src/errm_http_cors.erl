@@ -29,7 +29,7 @@ make(Opts) ->
     Origin = origin_from_request(Req),
     case origin_allowed(Origins, Origin) of
       false ->
-        Next();
+        Next(Req);
       true ->
         ResponseOrigin = resolved_origin(Origins, Origin),
         cors_handle(ResponseOrigin, Req, Next, Methods, RequestHeaders, ResponseHeaders, Credentials, MaxAge)
@@ -55,8 +55,8 @@ cors_handle(Origin, #{method := options} = Req, _Next, Methods, RequestHeaders, 
   AllowedReq = intersect_headers(ReqHeaders, RequestHeaders),
   Hdrs = cors_response_headers(Origin, Methods, AllowedReq, ResponseHeaders, Credentials, MaxAge),
   {ok, {204, Hdrs, <<>>}};
-cors_handle(Origin, _Req, Next, Methods, RequestHeaders, ResponseHeaders, Credentials, MaxAge) ->
-  case Next() of
+cors_handle(Origin, Req, Next, Methods, RequestHeaders, ResponseHeaders, Credentials, MaxAge) ->
+  case Next(Req) of
     {ok, {Status, Headers, Body}} ->
       CORS = cors_response_headers(Origin, Methods, RequestHeaders, ResponseHeaders, Credentials, MaxAge),
       {ok, {Status, maps:merge(Headers, CORS), Body}};

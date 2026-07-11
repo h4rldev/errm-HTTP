@@ -25,13 +25,13 @@ ping_handler(_Req) -> {ok, {200, #{}, ~"pong"}}.
 router_static_match_test() ->
     Routes = errm_http_router:compile([{get, [~"ping"], fun ping_handler/1}]),
     Req = #{method => get, path => [~"ping"], raw_path => ~"/ping",  params => #{}, headers => #{},
-            body => <<>>, peer => {{127,0,0,1}, 12345}},
+            body => <<>>, peer => {{127,0,0,1}, 12345}, cookies => #{}},
     {ok, {200, _, ~"pong"}} = errm_http_router:dispatch(Routes, Req).
 
 router_dynamic_param_test() ->
     Routes = errm_http_router:compile([{get, [~"users", ~":id"], fun user_handler/1}]),
     Req = #{method => get, path => [~"users", ~"42"], raw_path => ~"/users/42", params => #{},
-            headers => #{}, body => <<>>, peer => {{127,0,0,1}, 12345}},
+            headers => #{}, body => <<>>, peer => {{127,0,0,1}, 12345}, cookies => #{}},
     case errm_http_router:dispatch(Routes, Req) of
       {ok, {200, _, ~"User: 42"}} -> ok;
       {error, internal_error} = Err -> Err
@@ -43,13 +43,13 @@ user_handler(#{params := #{~"id" := Id}}) ->
 router_not_found_test() ->
     Routes = errm_http_router:compile([{get, [~"ping"], fun ping_handler/1}]),
     Req = #{method => get, path => [~"nope"], raw_path => ~"/nope", params => #{}, headers => #{},
-            body => <<>>, peer => {{127,0,0,1}, 12345}},
+            body => <<>>, peer => {{127,0,0,1}, 12345}, cookies => #{}},
     {error, not_found} = errm_http_router:dispatch(Routes, Req).
 
 router_method_not_allowed_test() ->
     Routes = errm_http_router:compile([{get, [~"ping"], fun ping_handler/1}]),
     Req = #{method => post, path => [~"ping"], raw_path => ~"/ping", params => #{}, headers => #{},
-            body => <<>>, peer => {{127,0,0,1}, 12345}},
+            body => <<>>, peer => {{127,0,0,1}, 12345}, cookies => #{}},
     {error, method_not_allowed} = errm_http_router:dispatch(Routes, Req).
 
 response_build_test() ->
@@ -63,20 +63,21 @@ response_adds_content_length_test() ->
 
 
 middleware_passthrough_test() ->
+    Req = #{method => get, path => [], raw_path => ~"/", params => #{}, peer => {{0,0,0,0}, 0}, headers => #{}, body => <<>>, cookies => #{}}, 
     %% No middleware — handler runs directly
-    Result = errm_http_middleware:run([], #{method => get, path => [], raw_path => ~"/", params => #{}, peer => {{0,0,0,0}, 0}, headers => #{}, body => <<>>}, fun() -> {ok, {200, #{}, ~"ok"}} end),
+    Result = errm_http_middleware:run([], Req, fun(_Req1) -> {ok, {200, #{}, ~"ok"}} end),
     ?assertEqual({ok, {200, #{}, ~"ok"}}, Result).
 
 middleware_adds_header_test() ->
     AddHeader = fun(_Req, Next) ->
-        case Next() of
+        case Next(_Req) of
             {ok, {Status, H, Body}} ->
                 {ok, {Status, H#{~"x-middleware" => ~"yes"}, Body}};
             Other -> Other
         end
     end,
-    Result = errm_http_middleware:run([AddHeader], #{method => get, path => [], raw_path => ~"/", params => #{}, peer => {{0,0,0,0}, 0}, headers => #{}, body => <<>>},
-        fun() -> {ok, {200, #{}, ~"body"}} end),
+    Result = errm_http_middleware:run([AddHeader], #{method => get, path => [], raw_path => ~"/", params => #{}, peer => {{0,0,0,0}, 0}, headers => #{}, body => <<>>, cookies => #{}},
+        fun(_Req) -> {ok, {200, #{}, ~"body"}} end),
     ?assertMatch({ok, {200, #{~"x-middleware" := ~"yes"}, ~"body"}}, Result).
 
 
@@ -84,8 +85,8 @@ cors_simple_request_test() ->
     CORS = errm_http_cors:make(#{origins => ~"*", credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => [] }),
     Req = #{method => get, path => [~"test"], raw_path => ~"/test",
             headers => #{~"origin" => ~"https://example.com"},
-            body => <<>>, params => #{}, peer => {{127,0,0,1},12345}},
-    Next = fun() -> {ok, {200, #{~"x-foo" => ~"bar"}, ~"body"}} end,
+            body => <<>>, params => #{}, peer => {{127,0,0,1},12345}, cookies => #{}},
+    Next = fun(_Req) -> {ok, {200, #{~"x-foo" => ~"bar"}, ~"body"}} end,
     {ok, {200, Headers, ~"body"}} = CORS(Req, Next),
     ?assertEqual(~"*", maps:get(~"access-control-allow-origin", Headers)),
     ?assertEqual(~"Origin", maps:get(~"vary", Headers)).
@@ -95,8 +96,8 @@ cors_preflight_test() ->
     Req = #{method => options, path => [~"test"], raw_path => ~"/test",
             headers => #{~"origin" => ~"https://example.com",
                         ~"access-control-request-headers" => ~"Content-Type"},
-            body => <<>>, params => #{}, peer => {{127,0,0,1},12345}},
-    {ok, {204, Headers, <<>>}} = CORS(Req, fun() -> {error, should_not_reach} end),
+            body => <<>>, params => #{}, peer => {{127,0,0,1},12345}, cookies => #{}},
+    {ok, {204, Headers, <<>>}} = CORS(Req, fun(_Req) -> {error, should_not_reach} end),
     ?assertEqual(~"*", maps:get(~"access-control-allow-origin", Headers)),
     ?assert(maps:is_key(~"access-control-allow-methods", Headers)).
 
@@ -104,6 +105,6 @@ cors_origin_denied_test() ->
     CORS = errm_http_cors:make(#{origins => [~"https://trusted.com"], credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => []}),
     Req = #{method => get, path => [~"test"], raw_path => ~"/test",
             headers => #{~"origin" => ~"https://evil.com"},
-            body => <<>>, params => #{}, peer => {{127,0,0,1},12345}},
-    {ok, {200, Headers, _}} = CORS(Req, fun() -> {ok, {200, #{}, ~"body"}} end),
+            body => <<>>, params => #{}, peer => {{127,0,0,1},12345}, cookies => #{}},
+    {ok, {200, Headers, _}} = CORS(Req, fun(_Req) -> {ok, {200, #{}, ~"body"}} end),
     ?assertNot(maps:is_key(~"access-control-allow-origin", Headers)).

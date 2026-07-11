@@ -2,8 +2,8 @@
 -export([run/3]).
 -include("include/errm_http.hrl").
 
--spec run([middleware()], request(), fun(() -> route_result())) -> route_result().
-run([], _Req, Next) ->
-  Next();
-run([Mw | Rest], Req, Next) ->
-  Mw(Req, fun() -> run(Rest, Req, Next) end).
+-spec run(Middlewares :: [middleware()], Request:: request(), NextFunction :: next_fun()) -> RouteRes :: route_result().
+run([], Request, NextFunction) ->
+    NextFunction(Request);
+run([Middleware | Rest], Request, NextFunction) ->
+    Middleware(Request, fun(Req1) -> run(Rest, Req1, NextFunction) end).

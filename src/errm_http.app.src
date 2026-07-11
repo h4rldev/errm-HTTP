@@ -3,7 +3,7 @@
   {vsn, "0.1.0"},
   {registered, []},
   {applications, [kernel, stdlib]},
-  {mod, {errm_sup, []}},
+  {mod, {errm_http_sup, []}},
   {env, []},
   {licenses, ["BSD-3"]},
   {links, [{"Codeberg", "https://codeberg.org/h4rl/errm-HTTP"}]}

@@ -102,4 +102,4 @@ static erl_nif_func_t nif_funcs[1] = {
     {"get_mime_type", 1, get_mime_type_nif, ERL_NIF_DIRTY_JOB_IO_BOUND},
 };
 
-ERL_NIF_INIT(errm_http_magic_nif, nif_funcs, load, null, null, unload);
+ERL_NIF_INIT(errm_http_magic_nif, nif_funcs, load, null, null, unload)

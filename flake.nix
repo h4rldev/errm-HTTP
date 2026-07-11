@@ -19,12 +19,12 @@
 
       src = ./.;
 
-      buildPlugins = [beamPackages.pc];
-      buildInputs = with pkgs; [file];
+      buildInputs = with pkgs; [file bash just zstd brotli];
       beamDeps = [];
 
       env = {
         REBAR_PROFILE = "prod";
+        ERL_ROOT = "${beamPackages.erlang}/lib/erlang";
       };
     };
 
@@ -34,12 +34,12 @@
 
       src = ./.;
 
-      buildPlugins = [beamPackages.pc];
-      buildInputs = with pkgs; [file];
+      buildInputs = with pkgs; [file bash just zstd brotli];
       beamDeps = [];
 
       env = {
         REBAR_PROFILE = "debug";
+        ERL_ROOT = "${beamPackages.erlang}/lib/erlang";
       };
     };
   in {
@@ -56,6 +56,8 @@
         beamPackages.erlang
         beamPackages.rebar3
         file
+        zstd
+        brotli
       ];
 
       packages = with pkgs; [
@@ -66,6 +68,10 @@
 
         just
       ];
+
+      shellHook = ''
+        export ERL_ROOT="${beamPackages.erlang}/lib/erlang"
+      '';
     };
   };
 }

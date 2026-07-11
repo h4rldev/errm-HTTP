@@ -78,7 +78,7 @@ spawn_acceptor(ListenSock, Routes, Middleware) ->
 
 server_middleware(Server) ->
     fun(_Req, Next) ->
-        case Next() of
+        case Next(_Req) of
             {ok, {Status, Headers, Body}} ->
                 case maps:is_key("server", Headers) of
                     true   -> {ok, {Status, Headers, Body}};

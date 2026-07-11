@@ -28,8 +28,8 @@ handle_data(Sock, Peer, RouteTree, Middleware, Data) ->
   case errm_http_request:parse(Data) of
     {ok, Request, Rest} ->
       Request2 = Request#{peer => Peer},
-      Result = errm_http_middleware:run(Middleware, Request2, fun() ->
-        errm_http_router:dispatch(RouteTree, Request2)
+      Result = errm_http_middleware:run(Middleware, Request2, fun(Req) ->
+        errm_http_router:dispatch(RouteTree, Req)
       end),
 
       send_response(Sock, Result),

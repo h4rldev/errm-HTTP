@@ -9,12 +9,17 @@ A small library in erlang that handles HTTP/1.1 requests with handlers, middlewa
 
 ## How to use
 
-Check [example/errm_http_demo_server.erl](example/errm_http_demo_server.erl) for a simple example.
+Check [example/errm_http_demo.erl](example/errm_http_demo.erl) for a simple example.
+
+## Run the demo
+
+- Run `rebar3 as examples escriptize` to generate an escript of the demo.
+- Run `./_build/examples/bin/errm_http_demo` to run the demo. (8080 is the port default, but you can pass any).
 
 ## TODOs
 
-- [ ] - Compression.
-- [ ] - Cookies.
+- [x] - Compression.
+- [x] - Cookies.
 - [ ] - Documentation.
 - [ ] - Declutter.
 
