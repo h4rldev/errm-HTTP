@@ -49,7 +49,7 @@ to_headers(CookieJar, Secret) ->
   maps:fold(fun(Name, Cookie, Acc) ->
     Value = maps:get(value, Cookie),
     Opts = maps:get(opts, Cookie),
-    Signed = maps:get(signed, Cookie, false),  %% read from the cookie record
+    Signed = maps:get(signed, Cookie, false),
     FinalValue = case Signed andalso Secret =/= undefined of
       true -> sign(Value, Secret);
       false -> Value

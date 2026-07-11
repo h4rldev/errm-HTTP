@@ -103,7 +103,6 @@ serve_dir(Root, IndexFiles) ->
     end
   end.
 
-%% Internal helper: tries to serve an index file from a directory
 try_index_with_threshold(_Root, _DirPath, []) ->
   {error, not_found};
 try_index_with_threshold(Root, DirPath, [Index | Rest]) ->
@@ -153,7 +152,7 @@ detect_mime(Path) ->
       Bin = list_to_binary(ExtStr),
       case Bin of
         <<$. , Rest/binary>> -> string:lowercase(Rest);
-        _ -> string:lowercase(Bin)   %% fallback (should not happen)
+        _ -> string:lowercase(Bin)
       end
   end,
   case ets:lookup(?MIME_TABLE, Ext) of

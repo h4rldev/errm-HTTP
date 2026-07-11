@@ -35,8 +35,6 @@ integration_test_() ->
       fun() -> test_404(Port) end,
       fun() -> test_keepalive(Port) end]}.
 
-%% ── Individual tests ───────────────────────────────────────────────
-
 test_get(Port) ->
     {ok, {200, _Headers, ~"hello"}} = raw_request(Port, ~"GET /hello HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").
 
@@ -66,7 +64,6 @@ test_keepalive(Port) ->
     ?assertMatch({200, _, ~"User: 99"}, Resp2),
     gen_tcp:close(Sock).
 
-%% ── Raw TCP helpers ────────────────────────────────────────────────
 
 raw_request(Port, Data) ->
     {ok, Sock} = gen_tcp:connect({127,0,0,1}, Port, [binary, {active, false}, {packet, raw}], 3000),

@@ -64,7 +64,6 @@ response_adds_content_length_test() ->
 
 middleware_passthrough_test() ->
     Req = #{method => get, path => [], raw_path => ~"/", params => #{}, peer => {{0,0,0,0}, 0}, headers => #{}, body => <<>>, cookies => #{}}, 
-    %% No middleware — handler runs directly
     Result = errm_http_middleware:run([], Req, fun(_Req1) -> {ok, {200, #{}, ~"ok"}} end),
     ?assertEqual({ok, {200, #{}, ~"ok"}}, Result).
 

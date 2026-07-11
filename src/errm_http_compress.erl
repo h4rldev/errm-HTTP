@@ -31,7 +31,6 @@ compress(CompressionOptions) ->
               {ok, Enc} ->
                 compress_response(Enc, Status, Headers, Body, Level);
               error ->
-                %% No matching encoding (should not happen if Supported non‑empty)
                 {ok, {Status, Headers, Body}}
             end;
           false ->
@@ -79,11 +78,9 @@ should_compress_with_supported(Headers, Body, MinLength, Supported) ->
   andalso not maps:is_key(<<"transfer-encoding">>, Headers)
   andalso Supported =/= [].
 
-%% New: pick an encoding from Preferred that appears in Supported
 -spec select_encoding_with_supported([encoding()], [encoding()]) -> {ok, encoding()} | error.
 select_encoding_with_supported(Preferred, Supported) ->
   find_first(fun(E) -> lists:member(E, Supported) end, Preferred).
-
 
 
 parse_accept_encoding(<<>>) -> [];
@@ -123,7 +120,7 @@ is_available(zstd) ->
       try errm_http_zstd_nif:compress(<<>>, 0) of
         _ -> true
       catch
-        error:not_loaded -> false;   %% <-- correct pattern
+        error:not_loaded -> false;
         error:undef -> false;
         _ -> true
       end;
@@ -135,7 +132,7 @@ is_available(brotli) ->
       try errm_http_brotli_nif:compress(<<>>, 0) of
         _ -> true
       catch
-        error:not_loaded -> false;   %% <-- correct pattern
+        error:not_loaded -> false;
         error:undef -> false;
         _ -> true
       end;
@@ -214,10 +211,10 @@ compress_body(brotli, Data, Level) ->
       logger:error("brotli compression failed: ~p", [Reason]),
       error
   catch
-    error:nif_error ->   %% catches erlang:nif_error(not_loaded)
+    error:nif_error ->
       logger:error("brotli NIF not available"),
       error;
-    error:not_loaded ->  %% just in case
+    error:not_loaded ->
       logger:error("brotli NIF not available"),
       error
   end.
@@ -247,7 +244,7 @@ decompress_body(zstd, Data) ->
       logger:error("zstd decompression failed: ~p", [Reason]),
       error
   catch
-    error:nif_error ->   %% catches erlang:nif_error(not_loaded)
+    error:nif_error ->
       logger:error("zstd NIF not available"),
       error;
     error:not_loaded ->
@@ -261,10 +258,10 @@ decompress_body(brotli, Data) ->
       logger:error("brotli decompression failed: ~p~n", [Reason]),
       error
   catch
-    error:nif_error ->   %% catches erlang:nif_error(not_loaded)
+    error:nif_error ->
       logger:error("brotli NIF not available~n"),
       error;
-    error:not_loaded ->  %% just in case
+    error:not_loaded ->
       logger:error("brotli NIF not available~n"),
       error
   end.
@@ -279,7 +276,7 @@ map_level(zstd, Level) ->
 map_level(brotli, Level) ->
   Min = 0,
   Max = 11,
-  Mapped = (Level * 11) div 9,   %% integer division
+  Mapped = (Level * 11) div 9,
   clamp(Mapped, Min, Max).
 
 clamp(V, Min, _Max) when V < Min -> Min;

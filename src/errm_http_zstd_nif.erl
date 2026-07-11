@@ -16,7 +16,7 @@ init() ->
   case erlang:load_nif(SoPath, 0) of
     ok -> ok;
     {error, {load_failed, _}} ->
-      %% NIF not available – fallback to stubs.
+      %% NIF not available - fallback to stubs.
       %% Return ok so the module loads without crashing.
       ok
   end.

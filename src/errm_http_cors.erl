@@ -29,7 +29,7 @@ make(Opts) ->
           {true, Creds} ->
             AllowOrigin = case Origins of
               '*' -> <<"*">>;
-              _   -> true   %% echo the request origin
+              _   -> true
             end,
             Policy = DefaultPolicy#{
               credentials => Creds,
@@ -37,7 +37,7 @@ make(Opts) ->
             },
             {ok, Policy}
         end
-      end;    
+      end;
     PolicyList when is_list(PolicyList) ->
       build_resolver(PolicyList, Opts)
   end,
@@ -213,8 +213,8 @@ cors_response_headers(Origin, Policy, ReqHeaders) ->
 
 
 normalize_origin('*') -> '*';
-normalize_origin("*") -> '*';   %% string wildcard
-normalize_origin(<<"*">>) -> '*';   %% binary wildcard
+normalize_origin("*") -> '*';
+normalize_origin(<<"*">>) -> '*';
 normalize_origin(B) when is_list(B) ->
     [to_binary(O) || O <- B];
 normalize_origin(B) when is_binary(B) ->
