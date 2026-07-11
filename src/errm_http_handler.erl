@@ -62,10 +62,10 @@ send_response(Sock, {ok, {Status, Headers, Body}}) ->
 send_response(Sock, {error, not_found}) ->
   B = ~"Not Found",
   gen_tcp:send(Sock, errm_http_response:build(404, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
-send_response(Sock, {error, method_not_allowed}) ->  %% ← add
+send_response(Sock, {error, method_not_allowed}) ->
   B = ~"Method Not Allowed",
   gen_tcp:send(Sock, errm_http_response:build(405, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
-send_response(Sock, {error, internal_error}) ->      %% ← add
+send_response(Sock, {error, internal_error}) ->
   B = ~"Internal Server Error",
   gen_tcp:send(Sock, errm_http_response:build(500, #{"content-type" => "text/plain", "content-length" => integer_to_binary(byte_size(B)), "connection" => "close"}, B));
 send_response(Sock, {error, bad_request}) ->

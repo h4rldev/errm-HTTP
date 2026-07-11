@@ -20,6 +20,7 @@ Check [example/errm_http_demo.erl](example/errm_http_demo.erl) for a simple exam
 
 - [x] - Compression.
 - [x] - Cookies.
+- [ ] - Allow override of {error, not_found}, {error, method_not_allowed}, {error, internal_error}, and {error, bad_request} responses.
 - [ ] - Documentation.
 - [ ] - Declutter.
 
