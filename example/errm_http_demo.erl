@@ -49,7 +49,10 @@ start(Port) ->
       server_name => "errm... HTTP!",
       port => Port,
       routes => Routes,
-      middleware => [DECOMPRESSION, CORS, COOKIE, COMPRESSION]
+      middlewares => [DECOMPRESSION, CORS, COOKIE, COMPRESSION],
+      error_handlers => #{
+        not_found => errm_http_file:serve_file("site-root", "404.html")
+      }
   }),
 
   io:format("Server started at http://localhost:~B/~n", [Port]),

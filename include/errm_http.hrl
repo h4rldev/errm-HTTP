@@ -64,11 +64,14 @@
   allowed => [encoding()]
 }.
 
+-type error_handler_map() :: #{atom() => fun((request()) -> route_result())}.
+
 -type options() :: #{
     server_name => unicode:chardata(),
     port => non_neg_integer(),
     routes => [route()],
-    middleware => [middleware()],
-    acceptor_count => pos_integer()
+    middlewares => [middleware()],
+    acceptor_count => pos_integer(),
+    error_handlers => error_handler_map()
 }.
 -endif.

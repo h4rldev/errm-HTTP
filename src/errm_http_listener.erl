@@ -9,7 +9,8 @@
   port        :: non_neg_integer(),
   acceptors   :: [pid()],
   routes      :: route_trie_node(),
-  middleware  :: [middleware()]
+  middlewares  :: [middleware()],
+  error_handlers :: error_handler_map()
 }).
 
 -spec start_link(options()) -> {ok, pid()} | ignore | {error, term()}.
@@ -22,12 +23,13 @@ init(Options) ->
   process_flag(trap_exit, true),
   Port        = maps:get(port, Options, 8080),
   Routes      = maps:get(routes, Options, []),
-  MW0         = maps:get(middleware, Options, []),
+  MW0         = maps:get(middlewares, Options, []),
   Server      = maps:get(server_name, Options, undefined),
+  ErrorHandlers = maps:get(error_handlers, Options, #{}),
   Schedulers  = erlang:system_info(schedulers_online),
   AcqCount    = maps:get(acceptor_count, Options, Schedulers * 2),
   RouteTree   = errm_http_router:compile(Routes),
-  Middleware = case Server of
+  Middlewares = case Server of
     undefined -> MW0;
     SName     -> [server_middleware(SName) | MW0]
   end,
@@ -36,8 +38,8 @@ init(Options) ->
     {ok, ListenSock} ->
       {ok, ActualPort} = inet:port(ListenSock),
       io:format("[errm] Listening on port: ~p with ~p acceptors~n", [ActualPort, AcqCount]),
-      Acceptors = [spawn_acceptor(ListenSock, RouteTree, Middleware) || _ <- lists:seq(1, AcqCount)],
-      {ok, #state{listen_sock=ListenSock, port=ActualPort, acceptors=Acceptors, routes=RouteTree, middleware=Middleware}};
+      Acceptors = [spawn_acceptor(ListenSock, RouteTree, Middlewares, ErrorHandlers) || _ <- lists:seq(1, AcqCount)],
+      {ok, #state{listen_sock=ListenSock, port=ActualPort, acceptors=Acceptors, routes=RouteTree, middlewares=Middlewares, error_handlers=ErrorHandlers}};
     {error, Reason} -> {stop, {cannot_listen, Reason}}
   end.
 
@@ -56,7 +58,7 @@ handle_info({'EXIT', Pid, Reason}, State=#state{acceptors=Accs, listen_sock=LS})
   case lists:member(Pid, Accs) of
     true ->
       io:format("[errm] Acceptor ~p restarted with reason \"~p\"~n", [Pid, Reason]),
-      New = spawn_acceptor(State#state.listen_sock, State#state.routes, State#state.middleware),
+      New = spawn_acceptor(State#state.listen_sock, State#state.routes, State#state.middlewares, State#state.error_handlers),
       Rest = [A || A <- Accs, A =/= Pid],
       {noreply, State#state{acceptors=[New | Rest]}};
     false ->
@@ -71,9 +73,10 @@ handle_info(_Info, State) ->
 terminate(_Reason, #state{listen_sock=undefined}) -> ok;
 terminate(_Reason, #state{listen_sock=Sock}) -> gen_tcp:close(Sock), ok.
 
--spec spawn_acceptor(gen_tcp:socket(), route_trie_node(), [middleware()]) -> pid().
-spawn_acceptor(ListenSock, Routes, Middleware) ->
-  spawn_link(fun() -> errm_http_acceptor:accept_loop(ListenSock, Routes, Middleware) end).
+
+-spec spawn_acceptor(ListenSock :: gen_tcp:socket(), Routes :: route_trie_node(), Middlewares :: [middleware()], ErrorHandlers :: error_handler_map()) -> pid().
+spawn_acceptor(ListenSock, Routes, Middlewares, ErrorHandlers) ->
+  spawn_link(fun() -> errm_http_acceptor:accept_loop(ListenSock, Routes, Middlewares, ErrorHandlers) end).
 
 
 server_middleware(Server) ->

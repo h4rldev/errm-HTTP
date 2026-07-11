@@ -1,21 +1,21 @@
 -module(errm_http_acceptor).
--export([accept_loop/3]).
+-export([accept_loop/4]).
 -include("include/errm_http.hrl").
 
--spec accept_loop(gen_tcp:socket(), route_trie_node(), [middleware()]) -> no_return().
-accept_loop(ListenSock, RouteTree, Middleware) ->
+-spec accept_loop(ListenSock :: gen_tcp:socket(), RouteTree :: route_trie_node(), Middlewares :: [middleware()], ErrorHandlers :: error_handler_map()) -> no_return().
+accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers) ->
   case gen_tcp:accept(ListenSock) of
     {ok, ClientSock} ->
       Peer = peer_address(ClientSock),
       ok = inet:setopts(ClientSock, [{active, once}, {packet, raw}, {nodelay, true}]),
       HandlerPid = spawn_link(fun() ->
-        errm_http_handler:handle_connection(ClientSock, Peer, RouteTree, Middleware) end),
+        errm_http_handler:handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers) end),
 
       gen_tcp:controlling_process(ClientSock, HandlerPid),
-      accept_loop(ListenSock, RouteTree, Middleware);
+      accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers);
     {error, _Reason} ->
       io:format("[errm] Error accepting connection: ~p ~n", [_Reason]),
-      accept_loop(ListenSock, RouteTree, Middleware)
+      accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers)
   end.
 
 

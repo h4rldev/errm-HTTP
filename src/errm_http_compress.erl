@@ -21,7 +21,6 @@ compress(CompressionOptions) ->
           true ->
             case select_encoding(Req, Preferred) of
               {ok, Enc} ->
-                io:format("Compressing with: ~p~n", [Enc]),
                 compress_response(Enc, Status, Headers, Body, Level);
               error ->
                 io:format("No compression selected~n"),
