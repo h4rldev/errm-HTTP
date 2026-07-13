@@ -4,16 +4,14 @@
 
 -spec init() -> ok.
 init() ->
-  SoPath0 = case code:priv_dir(?MODULE) of
-    {error, bad_name} -> filename:join([".", "priv", "errm_http_zstd_nif"]);
-    PrivDir -> filename:join([PrivDir, "errm_http_zstd_nif"])
+  NifPath = case code:priv_dir(errm_http) of
+    Dir when is_list(Dir) -> filename:join(Dir, "errm_http_zstd_nif");
+    _ -> {error, nif_not_found}
   end,
-
-  SoPath = case SoPath0 of
-    List when is_list(List) -> List;
-    Binary when is_binary(Binary) -> erlang:binary_to_list(Binary)
+  NifPathStr = case NifPath of
+    Path when is_list(Path) -> Path
   end,
-  case erlang:load_nif(SoPath, 0) of
+  case erlang:load_nif(NifPathStr, 0) of
     ok -> ok;
     {error, {load_failed, _}} ->
       %% NIF not available - fallback to stubs.

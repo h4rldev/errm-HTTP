@@ -4,16 +4,15 @@
 
 -spec init() -> ok.
 init() ->
-  SoPath0 = case code:priv_dir(?MODULE) of
-    {error, bad_name} -> filename:join([".", "priv", "errm_http_magic_nif"]);
-    PrivDir -> filename:join([PrivDir, "errm_http_magic_nif"])
+  NifPath = case code:priv_dir(errm_http) of
+    Dir when is_list(Dir) -> filename:join(Dir, "errm_http_magic_nif");
+    _ -> {error, nif_not_found}
   end,
-
-  SoPath = case SoPath0 of
-    List when is_list(List) -> List;
-    Binary when is_binary(Binary) -> erlang:binary_to_list(Binary)
+  NifPathStr = case NifPath of
+    Path when is_list(Path) -> Path
   end,
-  ok = erlang:load_nif(SoPath, 0).
+  ok = erlang:load_nif(NifPathStr, 0),
+  ok.
 
 -spec get_mime_type(FilePath :: string()) -> {ok, string()}.
 get_mime_type(_FilePath) ->
