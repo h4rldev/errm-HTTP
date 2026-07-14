@@ -4,13 +4,28 @@
 
 -spec init() -> ok.
 init() ->
+  Default = "./priv/errm_http_brotli_nif",
+
   NifPath = case code:priv_dir(errm_http) of
-    Dir when is_list(Dir) -> filename:join(Dir, "errm_http_brotli_nif");
-    _ -> {error, nif_not_found}
-  end,
-  NifPathStr = case NifPath of
-    Path when is_list(Path) -> Path
-  end,
+    PrivDir when is_list(PrivDir) ->
+      filename:join([PrivDir, "errm_http_brotli_nif"]);
+    {error, bad_name} ->
+      logger:error("Could not find priv_dir"),
+      case code:lib_dir(errm_http) of
+        {ok, LibDir} ->
+          filename:join([LibDir, "priv", "errm_http_brotli_nif"]);
+        _ ->
+          logger:error("Could not find lib_dir"),
+          Default
+      end;
+    _ ->
+      logger:error("Could not find priv_dir, and it wasnt bad_name"),
+      Default
+    end,
+
+    NifPathStr = case NifPath of
+      Path when is_list(Path) -> Path
+    end,
   case erlang:load_nif(NifPathStr, 0) of
     ok -> ok;
     {error, {load_failed, _}} ->

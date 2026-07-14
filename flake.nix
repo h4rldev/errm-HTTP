@@ -20,7 +20,7 @@
       src = ./.;
 
       nativeBuildInputs = with pkgs; [pkg-config];
-      buildInputs = with pkgs; [file bash just zstd brotli];
+      buildInputs = with pkgs; [file bash just brotli];
       beamDeps = [];
 
       env = {
@@ -36,7 +36,7 @@
       src = ./.;
 
       nativeBuildInputs = with pkgs; [pkg-config];
-      buildInputs = with pkgs; [file bash just zstd brotli];
+      buildInputs = with pkgs; [file bash just brotli];
       beamDeps = [];
 
       env = {
@@ -58,7 +58,6 @@
         beamPackages.erlang
         beamPackages.rebar3
         file
-        zstd
         brotli
         pkg-config
       ];

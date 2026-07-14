@@ -114,18 +114,7 @@ available_encodings() ->
     [E || E <- [gzip, deflate, zstd, brotli], is_available(E)].
 is_available(gzip) -> true;
 is_available(deflate) -> true;
-is_available(zstd) ->
-  case code:ensure_loaded(errm_http_zstd_nif) of
-    {module, errm_http_zstd_nif} ->
-      try errm_http_zstd_nif:compress(<<>>, 0) of
-        _ -> true
-      catch
-        error:not_loaded -> false;
-        error:undef -> false;
-        _ -> true
-      end;
-    _ -> false
-  end;
+is_available(zstd) -> true;
 is_available(brotli) ->
   case code:ensure_loaded(errm_http_brotli_nif) of
     {module, errm_http_brotli_nif} ->
@@ -190,18 +179,10 @@ compress_body(deflate, Data, Level) ->
   end;
 compress_body(zstd, Data, Level) ->
   Mapped = map_level(zstd, Level),
-  try errm_http_zstd_nif:compress(Data, Mapped) of
-    {ok, Compressed} -> {ok, Compressed};
-    {error, Reason} ->
-      logger:error("zstd compression failed: ~p", [Reason]),
-      error
-  catch
-    error:nif_error ->
-      logger:error("zstd NIF not available"),
-      error;
-    error:not_loaded ->
-      logger:error("zstd NIF not available"),
-      error
+  try
+    Compressed = zstd:compress(Data, #{compressionLevel => Mapped}),
+    {ok, Compressed}
+  catch _:_ -> error
   end;
 compress_body(brotli, Data, Level) ->
   Mapped = map_level(brotli, Level),
@@ -238,18 +219,10 @@ decompress_body(deflate, Data) ->
   catch _:_ -> error
   end;
 decompress_body(zstd, Data) ->
-  try errm_http_zstd_nif:decompress(Data) of
-    {ok, Decompressed} -> {ok, Decompressed};
-    {error, Reason} ->
-      logger:error("zstd decompression failed: ~p", [Reason]),
-      error
-  catch
-    error:nif_error ->
-      logger:error("zstd NIF not available"),
-      error;
-    error:not_loaded ->
-      logger:error("zstd NIF not available"),
-      error
+  try
+    Decompressed = zstd:decompress(Data),
+    {ok, Decompressed}
+  catch _:_ -> error
   end;
 decompress_body(brotli, Data) ->
   try errm_http_brotli_nif:decompress(Data) of

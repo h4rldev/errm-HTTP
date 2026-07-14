@@ -1,7 +1,7 @@
 -module(errm_http).
 -export([start/1, stop/0]).
 -export([set_secret/2, get_secret/1, delete_secret/1, get_all_secrets/0]).
--export_type([options/0]).
+-export_type([method/0, path/0, headers/0, request/0, response_body/0, response/0, route_result/0, next_fun/0, middleware/0, route_handler/0, route/0, route_trie_node/0, cookie_opts/0, cookie/0, cookie_jar/0, cors_origin/0, cors_policy_entry/0, cors_opts/0, encoding/0, compress_opts/0, decompress_opts/0, error_handler_map/0, options/0]).
 -include("include/errm_http.hrl").
 
 -spec start(Options :: options()) -> {ok, pid()} | {error, term()}.
