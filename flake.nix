@@ -23,6 +23,10 @@
       buildInputs = with pkgs; [file bash just brotli];
       beamDeps = [];
 
+      preBuild = ''
+        sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
+      '';
+
       env = {
         REBAR_PROFILE = "prod";
         ERL_ROOT = "${beamPackages.erlang}/lib/erlang";
@@ -37,7 +41,10 @@
 
       nativeBuildInputs = with pkgs; [pkg-config];
       buildInputs = with pkgs; [file bash just brotli];
-      beamDeps = [];
+
+      preBuild = ''
+        sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
+      '';
 
       env = {
         REBAR_PROFILE = "debug";

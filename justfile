@@ -38,7 +38,13 @@ build_nifs profile="debug": (build_magic profile) (build_brotli_if_available pro
     if [ -f "check.txt" ]; then rm "check.txt"; echo -e "build_nifs: Some builds {{ red }}failed{{ clear }}"; fi
 
 build_brotli_if_available profile="debug":
-    {{ if brotli_available == "yes" { "just build_brotli profile" } else { "echo -e 'brotli not found; skipping brotli NIF'; exit 0;" } }}
+    #!/usr/bin/env bash
+
+    if [[ {{ brotli_available }} == "no" ]]; then
+      echo -e 'brotli not found; skipping brotli NIF'; exit 0;
+    else
+      just build_brotli {{ profile }}
+    fi
 
 [unix]
 build_magic profile="debug":

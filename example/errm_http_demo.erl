@@ -36,7 +36,7 @@ start(Port) ->
   }),
   COOKIE = errm_http_cookie:with_cookies(),
   COMPRESSION = errm_http_compress:compress(#{
-      preferred => [deflate, zstd, brotli],
+      preferred => [zstd, brotli],
       level => 9,
       min_length => 1
   }),
