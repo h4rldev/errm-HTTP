@@ -1,7 +1,7 @@
 -module(errm_http_nif_loader).
 -export([path/2]).
 
--define(CACHE_KEY, {?MODULE, extracted_root}).
+-define(CACHE_KEY, {nif_loader, extracted_root}).
 
 path(Module, BaseName) ->
   case code:priv_dir(Module) of
@@ -18,7 +18,7 @@ path(Module, BaseName) ->
 
 use_extracted(Module, BaseName) ->
   Root = ensure_extracted(),
-  filename:join([Root, "lib", atom_to_list(Module), "priv", BaseName]).
+  filename:join([Root, atom_to_list(Module), "priv", BaseName]).
 
 ensure_extracted() ->
   case persistent_term:get(?CACHE_KEY, undefined) of
@@ -27,12 +27,12 @@ ensure_extracted() ->
       if Script == undefined ->
         erlang:error(no_escript_to_extract);
         true ->
-          {ok, Sections} = escript:extract(Script, [{section, [body]}]),
-          ZipBinary = case proplists:get_value(zip, Sections) of
+          {ok, Sections} = escript:extract(Script, []),
+          ZipBinary = case proplists:get_value(archive, Sections) of
             Zip when is_binary(Zip) -> Zip
           end,
           TempDir = create_temp_dir(),
-          ok = zip:unzip(ZipBinary, [{cwd, TempDir}]),
+          {ok, _Files} = zip:unzip(ZipBinary, [{cwd, TempDir}]),
           persistent_term:put(?CACHE_KEY, TempDir),
           TempDir
       end;
