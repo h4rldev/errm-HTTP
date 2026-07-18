@@ -6,11 +6,19 @@
 path(Module, BaseName) ->
   case code:priv_dir(Module) of
     {error, bad_name} ->
-      Root = ensure_extracted(),
-      filename:join([Root, "lib", atom_to_list(Module), "priv", BaseName]);
+      use_extracted(Module, BaseName);
     PrivDir ->
-      filename:join([PrivDir, BaseName])
+      case filelib:is_dir(PrivDir) of
+        true ->
+          filename:join([PrivDir, BaseName]);
+        false ->
+          use_extracted(Module, BaseName)
+      end
   end.
+
+use_extracted(Module, BaseName) ->
+  Root = ensure_extracted(),
+  filename:join([Root, "lib", atom_to_list(Module), "priv", BaseName]).
 
 ensure_extracted() ->
   case persistent_term:get(?CACHE_KEY, undefined) of
