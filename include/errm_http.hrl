@@ -18,7 +18,7 @@
   params := #{binary() => binary()},
   peer := {inet:ip_address(), inet:port_number()},
   cookies := #{binary() => binary()}
-}.
+} | map().
 
 -type response_body() :: iodata() | {file, file:filename_all()}.
 -type response() :: {pos_integer(), headers(), response_body()}.
