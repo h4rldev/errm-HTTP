@@ -2,6 +2,8 @@
 -export([handle_connection/5]).
 -include("include/errm_http.hrl").
 
+-include_lib("kernel/include/file.hrl").
+
 -spec handle_connection(ClientSock :: gen_tcp:socket(), Peer :: {inet:ip_address(), inet:port_number()}, RouteTree :: route_trie_node(), Middlewares :: [middleware()], ErrorHandlers :: error_handler_map()) -> ok.
 handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers) ->
   request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, <<>>).
@@ -52,13 +54,41 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
   end.
 
 
+-spec send_file_with_correct_length(gen_tcp:socket(), pos_integer(), headers(), file:filename_all()) -> ok.
+send_file_with_correct_length(Sock, Status, Headers, FilePath) ->
+  case get_content_length(Headers, FilePath) of
+    {ok, Size} when is_integer(Size), Size >= 0 ->
+      HeaderBin = errm_http_response:build_headers(Status, Headers, Size),
+      ok = gen_tcp:send(Sock, HeaderBin),
+      sendfile(Sock, FilePath, 0, 0);
+    {error, Reason} ->
+      logger:error("[errm] Failed to get size for ~p: ~p", [FilePath, Reason]),
+      send_default_error(Sock, internal_error)
+  end.
+
+-spec get_content_length(headers(), file:filename_all()) -> {ok, non_neg_integer()} | {error, term()}.
+get_content_length(Headers, FilePath) ->
+  case maps:get(<<"content-length">>, Headers, undefined) of
+    Bin when is_binary(Bin) ->
+      try binary_to_integer(Bin) of
+        Int when Int >= 0 -> {ok, Int}
+      catch _:_ -> {error, invalid_content_length}
+      end;
+    undefined ->
+      case file:read_file_info(FilePath) of
+        {ok, #file_info{size = Size}} when is_integer(Size), Size >= 0 ->
+          {ok, Size};
+        {ok, #file_info{size = undefined}} ->
+          {error, size_undefined};
+        {error, Reason} ->
+          {error, Reason}
+      end
+  end.
+
 send_response(Sock, _ErrorHandlers, {ok, {Status, Headers, Body}}, _Request) ->
   case Body of
     {file, FilePath} ->
-      HeaderBin = errm_http_response:build_headers(Status, Headers, 0),
-      ok = gen_tcp:send(Sock, HeaderBin),
-      sendfile(Sock, FilePath, 0, 0);
-
+      send_file_with_correct_length(Sock, Status, Headers, FilePath);
     _ when is_binary(Body); is_list(Body) ->
       BodySize = iolist_size(Body),
       Normalized = normalize_headers(Headers),
@@ -73,6 +103,7 @@ send_response(Sock, _ErrorHandlers, {ok, {Status, Headers, Body}}, _Request) ->
           gen_tcp:send(Sock, errm_http_response:build(Status, Headers, Body))
       end
   end;
+
 send_response(Sock, ErrorHandler, {error, Reason}, Request) ->
   case maps:get(Reason, ErrorHandler, undefined) of
     undefined ->
