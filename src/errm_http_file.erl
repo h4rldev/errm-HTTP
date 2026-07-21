@@ -1,13 +1,11 @@
 -module(errm_http_file).
--export([serve_file/2, serve_dir/1, serve_dir/2]).
+-export([serve_file/2, serve_dir/1, serve_dir/2, serve_dir/3]).
 -export([init_mime_cache/0]).
 -include("include/errm_http.hrl").
 -include_lib("kernel/include/file.hrl").
 
 -define(MIME_TABLE, errm_http_mime_cache).
 
-%% ----------------------------------------------------------------------
-%% MIME cache
 init_mime_cache() ->
   case ets:info(?MIME_TABLE) of
     undefined ->
@@ -80,13 +78,10 @@ serve_dir(Root, IndexFiles) ->
       {ok, FullPath} ->
         case file:read_file_info(FullPath) of
           {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
-            %% Serve the file directly
             serve_existing_file(FullPath, Size);
           {ok, #file_info{type = directory}} ->
-            %% Try index files inside directory
             try_index_with_fallback(RootStr, FullPath, IndexStrs, Req);
           {error, enoent} ->
-            %% File not found – try compressed variants
             serve_compressed_variant(FullPath, Req, RootStr, IndexStrs);
           {error, _} ->
             {error, not_found}
@@ -95,6 +90,60 @@ serve_dir(Root, IndexFiles) ->
         {error, not_found}
     end
   end.
+
+-spec serve_dir(Root :: unicode:chardata(), IndexFiles :: [unicode:chardata()], Fallback :: unicode:chardata() | undefined) -> route_handler().
+serve_dir(Root, IndexFiles, Fallback) ->
+  RootStr = to_string(Root),
+  IndexStrs = [to_string(I) || I <- IndexFiles],
+  FallbackStr = case Fallback of
+    undefined -> undefined;
+    F -> to_string(F)
+  end,
+  fun(Req = #{params := #{"path" := Path}}) ->
+    case safe_join(RootStr, Path) of
+      {ok, FullPath} ->
+        case file:read_file_info(FullPath) of
+          {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
+            serve_existing_file(FullPath, Size);
+          {ok, #file_info{type = directory}} ->
+            try_index_with_fallback(RootStr, FullPath, IndexStrs, Req);
+          {error, enoent} ->
+            case serve_compressed_variant(FullPath, Req, RootStr, IndexStrs) of
+              {ok, _} = Resp -> Resp;
+              _ ->
+                case FallbackStr of
+                  undefined -> {error, not_found};
+                  _ ->
+                    FallbackPath = filename:join([RootStr, FallbackStr]),
+                    serve_fallback(FallbackPath, Req)
+                end
+            end;
+          {error, _} ->
+            {error, not_found}
+        end;
+      false ->
+        {error, not_found}
+    end
+  end.
+
+-spec serve_fallback(file:filename_all(), request()) -> route_result().
+serve_fallback(Path, _Req) ->
+  case file:read_file_info(Path) of
+    {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
+      Mime = detect_mime(Path),
+      Headers = #{
+        <<"content-type">> => Mime,
+        <<"content-length">> => integer_to_binary(Size)
+      },
+      if Size < ?ERRM_CHUNK_THRESHOLD ->
+        {ok, Data} = file:read_file(Path),
+        {ok, {200, Headers, Data}};
+      true ->
+        {ok, {200, Headers, {file, Path}}}
+      end;
+    _ -> {error, not_found}
+  end.
+
 
 -spec serve_existing_file(file:filename_all(), non_neg_integer()) -> route_result().
 serve_existing_file(Path, Size) ->
@@ -175,7 +224,6 @@ try_index_with_threshold(RootStr, DirPath, [Index | Rest], Req) ->
     {ok, #file_info{type = directory}} ->
       try_index_with_threshold(RootStr, DirPath, Rest, Req);
     {error, enoent} ->
-      %% Index file doesn't exist – try compressed variant
       case serve_compressed_variant(FullPath, Req, RootStr, []) of
         {ok, _} = Resp -> Resp;
         _ -> try_index_with_threshold(RootStr, DirPath, Rest, Req)
