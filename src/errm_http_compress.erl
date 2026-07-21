@@ -6,7 +6,7 @@
 -export_type([compress_opts/0]).
 
 -define(AVAILABLE_ENCODINGS, (fun() ->
-    [E || E <- [gzip, deflate, zstd, brotli], is_available(E)]
+  [E || E <- [gzip, deflate, zstd, brotli], is_available(E)]
 end)()).
 
 -spec compress() -> CompressionMiddleware :: middleware().
@@ -19,25 +19,28 @@ compress(CompressionOptions) ->
   Level = maps:get(compression_level, CompressionOptions, 6),
 
   fun(Req, Next) ->
-    case Next(Req) of
-      {ok, {Status, Headers, Body}} ->
-        Accept = maps:get(<<"accept-encoding">>, maps:get(headers, Req, #{}), <<>>),
-        ClientEncodings = parse_accept_encoding(Accept),
-        Available = ?AVAILABLE_ENCODINGS,
-        Supported = [E || E <- ClientEncodings, lists:member(E, Available)],
-        case should_compress_with_supported(Headers, Body, MinLength, Supported) of
-          true ->
-            case select_encoding_with_supported(Preferred, Supported) of
-              {ok, Enc} ->
-                compress_response(Enc, Status, Headers, Body, Level);
-              error ->
-                {ok, {Status, Headers, Body}}
-            end;
-          false ->
-            {ok, {Status, Headers, Body}}
-        end;
-      Other -> Other
-    end
+      case Next(Req) of
+        {ok, {Status, Headers, Body}} ->
+          Accept = maps:get(<<"accept-encoding">>, maps:get(headers, Req, #{}), <<>>),
+          ClientEncodings = parse_accept_encoding(Accept),
+          Available = ?AVAILABLE_ENCODINGS,
+          Supported = [E || E <- ClientEncodings, lists:member(E, Available)],
+          case should_compress_with_supported(Headers, Body, MinLength, Supported) of
+            true ->
+              case select_encoding_with_supported(Preferred, Supported) of
+                {ok, Enc} ->
+                  compress_response(Enc, Status, Headers, Body, Level);
+                error ->
+                  {ok, {Status, Headers, Body}}
+              end;
+            false ->
+              case handle_precompressed_file(Headers, Body) of
+                {ok, NewHeaders} -> {ok, {Status, NewHeaders, Body}};
+                unchanged -> {ok, {Status, Headers, Body}}
+              end
+          end;
+        Other -> Other
+      end
   end.
 
 -spec decompress() -> DecompressionMiddleware :: middleware().
@@ -47,36 +50,71 @@ decompress() -> decompress(#{}).
 decompress(DecompressionOptions) ->
   Allowed = maps:get(allowed, DecompressionOptions, ?AVAILABLE_ENCODINGS),
   fun(Req, Next) ->
-    case maps:get(<<"content-encoding">>, maps:get(headers, Req), undefined) of
-      undefined -> Next(Req);
-      Enc ->
-        Encoding = encoding_atom(Enc),
-        case lists:member(Encoding, Allowed) of
-          true ->
-            case decompress_body(Encoding, maps:get(body, Req)) of
-              {ok, Body} ->
-                Req1 = Req#{body => Body, headers => maps:remove(<<"content-encoding">>, maps:get(headers, Req))},
-                Next(Req1);
-              error ->
-                {error, bad_request}
-            end;
-          false ->
-            Next(Req)
-        end
-    end
+      case maps:get(<<"content-encoding">>, maps:get(headers, Req), undefined) of
+        undefined -> Next(Req);
+        Enc ->
+          Encoding = encoding_atom(Enc),
+          case lists:member(Encoding, Allowed) of
+            true ->
+              case decompress_body(Encoding, maps:get(body, Req)) of
+                {ok, Body} ->
+                  Req1 = Req#{body => Body, headers => maps:remove(<<"content-encoding">>, maps:get(headers, Req))},
+                  Next(Req1);
+                error ->
+                  {error, bad_request}
+              end;
+            false ->
+              Next(Req)
+          end
+      end
   end.
 
 
--spec should_compress_with_supported(headers(), response_body(), non_neg_integer(), [encoding()]) -> boolean().
+-spec handle_precompressed_file(headers(), response_body()) ->
+  {ok, headers()} | unchanged.
+handle_precompressed_file(Headers, {file, Path}) ->
+  case maps:is_key(<<"content-encoding">>, Headers) of
+    true -> unchanged;  % already set, don't override
+    false ->
+      case filename:extension(Path) of
+        ".gz"  -> {ok, Headers#{
+          <<"content-encoding">> => <<"gzip">>,
+          <<"vary">> => maybe_add_vary(Headers)
+        }};
+        ".br"  -> {ok, Headers#{
+          <<"content-encoding">> => <<"br">>,
+          <<"vary">> => maybe_add_vary(Headers)
+        }};
+        ".zst" -> {ok, Headers#{
+          <<"content-encoding">> => <<"zstd">>,
+          <<"vary">> => maybe_add_vary(Headers)
+        }};
+        ".deflate" -> {ok, Headers#{
+          <<"content-encoding">> => <<"deflate">>,
+          <<"vary">> => maybe_add_vary(Headers)
+        }};
+        _ -> unchanged
+      end
+  end;
+handle_precompressed_file(_Headers, _Body) ->
+  unchanged.
+
 should_compress_with_supported(Headers, Body, MinLength, Supported) ->
-  Size = case Body of
-    Bin when is_binary(Bin) -> byte_size(Bin);
-    List when is_list(List) -> iolist_size(List)
-  end,
-  Size >= MinLength
-  andalso not maps:is_key(<<"content-encoding">>, Headers)
-  andalso not maps:is_key(<<"transfer-encoding">>, Headers)
-  andalso Supported =/= [].
+  case is_compressible_body(Body) of
+    false -> false;
+    true ->
+      Size = case Body of
+        Bin when is_binary(Bin) -> byte_size(Bin);
+        List when is_list(List) -> iolist_size(List)
+      end,
+      Size >= MinLength
+      andalso not maps:is_key(<<"content-encoding">>, Headers)
+      andalso not maps:is_key(<<"transfer-encoding">>, Headers)
+      andalso Supported =/= []
+  end.
+
+is_compressible_body(Body) ->
+  is_binary(Body) orelse is_list(Body).
 
 -spec select_encoding_with_supported([encoding()], [encoding()]) -> {ok, encoding()} | error.
 select_encoding_with_supported(Preferred, Supported) ->
@@ -87,9 +125,9 @@ parse_accept_encoding(<<>>) -> [];
 parse_accept_encoding(Header) ->
   Tokens = binary:split(Header, <<",">>, [global]),
   [begin
-    Clean = string:trim(Token),
-    encoding_atom(string:lowercase(Clean))
-  end || Token <- Tokens].
+     Clean = string:trim(Token),
+     encoding_atom(string:lowercase(Clean))
+   end || Token <- Tokens].
 
 
 
@@ -111,7 +149,7 @@ find_first(Pred, [H|T]) ->
 
 -spec available_encodings() -> [encoding()].
 available_encodings() ->
-    [E || E <- [gzip, deflate, zstd, brotli], is_available(E)].
+  [E || E <- [gzip, deflate, zstd, brotli], is_available(E)].
 is_available(gzip) -> true;
 is_available(deflate) -> true;
 is_available(zstd) -> true;
