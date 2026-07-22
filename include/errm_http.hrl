@@ -75,17 +75,7 @@
 }.
 
 
--type cors_opts() :: #{
-  policies => [cors_policy_entry()],
-
-  origins := cors_origin(),
-  methods := [method()],
-  headers := [unicode:chardata()],
-  exposed_headers := [unicode:chardata()],
-  credentials := boolean(),
-  max_age := non_neg_integer()
-}.
-
+-type cors_opts() :: cors_policy_entry() | #{policies := [cors_policy_entry()]}.
 
 -type encoding() :: gzip | deflate | zstd | brotli.
 -type compress_opts() :: #{

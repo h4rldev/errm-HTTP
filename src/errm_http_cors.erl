@@ -3,59 +3,16 @@
 -include("include/errm_http.hrl").
 -export_type([cors_origin/0, cors_opts/0, cors_policy_entry/0]).
 
-
-
 -define(ERRM_CORS_DEFAULT_METHODS, [get, post, put, delete, patch, options]).
 -define(ERRM_CORS_DEFAULT_HEADERS, ["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"]).
 
-
 -spec make(cors_opts()) -> middleware().
 make(Opts) ->
-  Resolver = case maps:get(policies, Opts, undefined) of
-    undefined ->
-      DefaultPolicy = #{
-        allowed_methods => maps:get(methods, Opts, ?ERRM_CORS_DEFAULT_METHODS),
-        allowed_headers => maps:get(headers, Opts, ?ERRM_CORS_DEFAULT_HEADERS),
-        exposed_headers => maps:get(exposed_headers, Opts, []),
-        credentials => maps:get(credentials, Opts, true),
-        max_age => maps:get(max_age, Opts, 86400),
-        vary => maps:get(vary, Opts, true)
-      },
-      Origins0 = maps:get(origins, Opts, "*"),
-      Origins = normalize_origin(Origins0),
-      fun(Origin, _Method, _Req) ->
-        case origin_allowed(Origins, Origin) of
-          false -> {error, denied};
-          {true, Creds} ->
-            AllowOrigin = case Origins of
-              '*' -> <<"*">>;
-              _   -> true
-            end,
-            Policy = DefaultPolicy#{
-              credentials => Creds,
-              allow_origin => AllowOrigin
-            },
-            {ok, Policy}
-        end
-      end;
-    PolicyList when is_list(PolicyList) ->
-      build_resolver(PolicyList, Opts)
+  PolicyList = case maps:get(policies, Opts, undefined) of
+    undefined -> [Opts];
+    List when is_list(List) -> List
   end,
 
-  fun(Req, Next) ->
-    Origin = origin_from_request(Req),
-    Method = maps:get(method, Req),
-    logger:debug("[CORS] Request from ~p method ~p", [Origin, Method]),
-    case Resolver(Origin, Method, Req) of
-      {ok, Policy} ->
-        cors_handle(Origin, Req, Next, Policy);
-      {error, denied} ->
-        Next(Req)
-    end
-  end.
-
--spec build_resolver([cors_policy_entry()], cors_opts()) -> fun().
-build_resolver(PolicyEntries, Opts) ->
   Defaults = #{
     allowed_methods => maps:get(methods, Opts, ?ERRM_CORS_DEFAULT_METHODS),
     allowed_headers => maps:get(headers, Opts, ?ERRM_CORS_DEFAULT_HEADERS),
@@ -65,9 +22,17 @@ build_resolver(PolicyEntries, Opts) ->
     vary => maps:get(vary, Opts, true)
   },
 
-  Compiled = [compile_entry(Entry, Defaults) || Entry <- PolicyEntries],
-  fun(Origin, Method, Req) ->
-    find_matching_policy(Compiled, Origin, Method, Req)
+  Compiled = [compile_entry(Entry, Defaults) || Entry <- PolicyList],
+  fun(Req, Next) ->
+      Origin = origin_from_request(Req),
+      Method = maps:get(method, Req),
+      logger:debug("[CORS] Request from ~p method ~p", [Origin, Method]),
+      case find_matching_policy(Compiled, Origin, Method, Req) of
+        {ok, Policy} ->
+          cors_handle(Origin, Req, Next, Policy);
+        {error, denied} ->
+          Next(Req)
+      end
   end.
 
 
@@ -103,30 +68,23 @@ compile_entry(Entry, Defaults) ->
     credentials_match => CredentialsMatch,
     allowed_headers_set => AllowedHeadersSet,
     policy => Policy
-  }.
+   }.
 
 find_matching_policy([], _Origin, _Method, _Req) ->
   {error, denied};
 find_matching_policy([Entry | Rest], Origin, Method, Req) ->
   case origin_allowed(maps:get(origin, Entry), Origin) of
-    false -> find_matching_policy(Rest, Origin, Method, Req);
+    false ->
+      find_matching_policy(Rest, Origin, Method, Req);
     {true, _Creds} ->
-      case maps:get(methods, Entry, undefined) of
-        undefined -> ok;
-        Methods when is_list(Methods) ->
-          case lists:member(Method, Methods) of
-            true -> ok;
-            false -> find_matching_policy(Rest, Origin, Method, Req)
-          end
-      end,
-
-      case maps:get(headers, Entry, undefined) of
-        undefined ->
-          {ok, maps:get(policy, Entry)};
-        RequiredHeaders when is_list(RequiredHeaders) ->
-          case Method =:= options of
-            false -> find_matching_policy(Rest, Origin, Method, Req);
-            true ->
+      case Method of
+        options ->
+          case maps:get(headers, Entry, undefined) of
+            undefined ->
+              {ok, maps:get(policy, Entry)};
+            [] ->
+              {ok, maps:get(policy, Entry)};
+            RequiredHeaders when is_list(RequiredHeaders) ->
               ReqHeaders = maps:get(
                 <<"access-control-request-headers">>,
                 maps:get(headers, Req, #{}),
@@ -134,10 +92,7 @@ find_matching_policy([Entry | Rest], Origin, Method, Req) ->
               ),
               case ReqHeaders of
                 <<"">> ->
-                  case RequiredHeaders of
-                    [] -> {ok, maps:get(policy, Entry)};
-                    _ -> find_matching_policy(Rest, Origin, Method, Req)
-                  end;
+                  {ok, maps:get(policy, Entry)};
                 _ ->
                   ReqSet = ordsets:from_list([
                     string:lowercase(string:trim(S)) ||
@@ -148,20 +103,36 @@ find_matching_policy([Entry | Rest], Origin, Method, Req) ->
                   ]),
                   case ordsets:intersection(ReqSet, RequiredSet) of
                     [] -> find_matching_policy(Rest, Origin, Method, Req);
-                    _ -> {ok, maps:get(policy, Entry)}
+                    _  -> {ok, maps:get(policy, Entry)}
                   end
               end
-          end
+          end;
+        _ ->
+          {ok, maps:get(policy, Entry)}
       end
   end.
 
 
 
-
-
 cors_handle(Origin, #{method := options} = Req, _Next, Policy) ->
-  ReqHeaders = maps:get(<<"access-control-request-headers">>, maps:get(headers, Req, #{}), <<"">>),
-  AllowedReq = intersect_headers(ReqHeaders, maps:get(allowed_headers_set, Policy, ordsets:new())),
+  ReqHeaders = maps:get(
+    <<"access-control-request-headers">>,
+    maps:get(headers, Req, #{}),
+    <<"">>
+  ),
+  AllowedSet = maps:get(allowed_headers_set, Policy, ordsets:new()),
+  AllowedReq = case AllowedSet of
+    [] ->
+      case ReqHeaders of
+        <<"">> -> [];
+        _ ->
+          [to_binary(string:lowercase(string:trim(S))) ||
+           S <- binary:split(ReqHeaders, <<",">>, [global]),
+           S =/= <<"">>]
+      end;
+    _ ->
+      intersect_headers(ReqHeaders, AllowedSet)
+  end,
   Hdrs = cors_response_headers(Origin, Policy, AllowedReq),
   {ok, {204, Hdrs, <<>>}};
 
@@ -184,28 +155,33 @@ cors_response_headers(Origin, Policy, ReqHeaders) ->
   MaxAge = maps:get(max_age, Policy, 86400),
   Vary = maps:get(vary, Policy, true),
 
-  H0 = case AllowOrigin of
-    true -> #{<<"access-control-allow-origin">> => Origin};
-    false -> #{};
-    OriginBin when is_binary(OriginBin) -> #{<<"access-control-allow-origin">> => OriginBin}
-  end,
-  H1 = case Vary andalso H0 =/= #{} of
-    true -> H0#{<<"vary">> => <<"Origin">>};
-    false -> H0
-  end,
-  H2 = case Creds of
-    true -> H1#{<<"access-control-allow-credentials">> => <<"true">>};
-    false -> H1
-  end,
+  H0 = 
+    case AllowOrigin of
+      true -> #{<<"access-control-allow-origin">> => Origin};
+      false -> #{};
+      OriginBin when is_binary(OriginBin) -> #{<<"access-control-allow-origin">> => OriginBin}
+    end,
+  H1 = 
+    case Vary andalso H0 =/= #{} of
+      true -> H0#{<<"vary">> => <<"Origin">>};
+      false -> H0
+    end,
+  H2 = 
+    case Creds of
+      true -> H1#{<<"access-control-allow-credentials">> => <<"true">>};
+      false -> H1
+    end,
   H3 = H2#{<<"access-control-allow-methods">> => binary_join(methods_to_binary(Methods), <<", ">>)},
-  H4 = case ReqHeaders of
-    [] -> H3;
-    _  -> H3#{<<"access-control-allow-headers">> => binary_join(ReqHeaders, <<", ">>)}
-  end,
-  H5 = case ExposedHeaders of
-    [] -> H4;
-    _  -> H4#{<<"access-control-expose-headers">> => binary_join(ExposedHeaders, <<", ">>)}
-  end,
+  H4 = 
+    case ReqHeaders of
+      [] -> H3;
+      _  -> H3#{<<"access-control-allow-headers">> => binary_join(ReqHeaders, <<", ">>)}
+    end,
+  H5 = 
+    case ExposedHeaders of
+      [] -> H4;
+      _  -> H4#{<<"access-control-expose-headers">> => binary_join(ExposedHeaders, <<", ">>)}
+    end,
   case MaxAge of
     0 -> H5;
     _ -> H5#{<<"access-control-max-age">> => integer_to_binary(MaxAge)}
@@ -216,19 +192,19 @@ normalize_origin('*') -> '*';
 normalize_origin("*") -> '*';
 normalize_origin(<<"*">>) -> '*';
 normalize_origin(B) when is_list(B) ->
-    [to_binary(O) || O <- B];
+  [to_binary(O) || O <- B];
 normalize_origin(B) when is_binary(B) ->
-    to_binary(B);
+  to_binary(B);
 normalize_origin(Fun) when is_function(Fun, 1) -> Fun.
 
 origin_allowed('*', _) -> {true, false};
 origin_allowed(Allowed, Origin) when is_binary(Allowed) ->
-    {Allowed =:= Origin, false};
+  {Allowed =:= Origin, false};
 origin_allowed(List, Origin) when is_list(List) ->
-    case lists:member(Origin, List) of
-        true -> {true, false};
-        false -> false
-    end;
+  case lists:member(Origin, List) of
+    true -> {true, false};
+    false -> false
+  end;
 origin_allowed(Fun, Origin) when is_function(Fun, 1) ->
   case Fun(Origin) of
     {true, Creds} when is_boolean(Creds)
@@ -236,7 +212,7 @@ origin_allowed(Fun, Origin) when is_function(Fun, 1) ->
     true  -> {true, false};
     false -> false;
     _     -> false
-    end.
+  end.
 
 origin_from_request(Req) ->
   maps:get(<<"origin">>, maps:get(headers, Req, #{}), <<"null">>).

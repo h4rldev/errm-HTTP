@@ -81,7 +81,7 @@ middleware_adds_header_test() ->
 
 
 cors_simple_request_test() ->
-    CORS = errm_http_cors:make(#{origins => ~"*", credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => [] }),
+    CORS = errm_http_cors:make(#{origin => ~"*", credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => [] }),
     Req = #{method => get, path => [~"test"], raw_path => ~"/test",
             headers => #{~"origin" => ~"https://example.com"},
             body => <<>>, params => #{}, peer => {{127,0,0,1},12345}, cookies => #{}},
@@ -91,7 +91,7 @@ cors_simple_request_test() ->
     ?assertEqual(~"Origin", maps:get(~"vary", Headers)).
 
 cors_preflight_test() ->
-    CORS = errm_http_cors:make(#{origins => ~"*", credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => []}),
+    CORS = errm_http_cors:make(#{origin => ~"*", credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => []}),
     Req = #{method => options, path => [~"test"], raw_path => ~"/test",
             headers => #{~"origin" => ~"https://example.com",
                         ~"access-control-request-headers" => ~"Content-Type"},
@@ -101,7 +101,7 @@ cors_preflight_test() ->
     ?assert(maps:is_key(~"access-control-allow-methods", Headers)).
 
 cors_origin_denied_test() ->
-    CORS = errm_http_cors:make(#{origins => [~"https://trusted.com"], credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => []}),
+    CORS = errm_http_cors:make(#{origin => [~"https://trusted.com"], credentials => true, methods => [get, post], max_age => 86400, exposed_headers => [], headers => []}),
     Req = #{method => get, path => [~"test"], raw_path => ~"/test",
             headers => #{~"origin" => ~"https://evil.com"},
             body => <<>>, params => #{}, peer => {{127,0,0,1},12345}, cookies => #{}},
