@@ -16,6 +16,8 @@ request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Buffer) ->
         {continue, Rest} ->
           inet:setopts(Sock, [{active, once}]),
           request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Rest);
+        {upgraded, _Rest} ->
+          ok;
         {close, _Rest} ->
           gen_tcp:close(Sock)
       end;
@@ -36,13 +38,18 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
         errm_http_router:dispatch(RouteTree, Req)
       end),
 
-      send_response(Sock, ErrorHandlers, Result, Request2),
-      Conn = maps:get(connection, maps:get(headers, Request2, #{}), keep_alive),
-      case normalize_conn(Conn) of
-        keep_alive -> {continue, Rest};
-        close -> {close, Rest}
+      case Result of
+        {upgrade, Module, {HandlerMod, HandlerArgs}} ->
+          Module:upgrade(Sock, Request2, {HandlerMod, HandlerArgs}),
+          {upgraded, Rest};
+        _ ->
+          send_response(Sock, ErrorHandlers, Result, Request2),
+          Conn = maps:get(connection, maps:get(headers, Request2, #{}), keep_alive),
+          case normalize_conn(Conn) of
+            keep_alive -> {continue, Rest};
+            close -> {close, Rest}
+          end
       end;
-
     {partial, _} ->
       {continue, Data};
     {error, request_entity_too_large} ->
