@@ -40,7 +40,7 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
 
       case Result of
         {upgrade, Module, {HandlerMod, HandlerArgs}} ->
-          Module:upgrade(Sock, Request2, {HandlerMod, HandlerArgs}),
+          Module:upgrade(Sock, Request2, HandlerMod, HandlerArgs),
           {upgraded, Rest};
         _ ->
           send_response(Sock, ErrorHandlers, Result, Request2),
