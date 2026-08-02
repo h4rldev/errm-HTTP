@@ -142,7 +142,9 @@ cors_handle(Origin, Req, Next, Policy) ->
       CORS = cors_response_headers(Origin, Policy, []),
       {ok, {Status, maps:merge(Headers, CORS), Body}};
     {error, _} = Err ->
-      Err
+      Err;
+    Other ->
+      Other
   end.
 
 
