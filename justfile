@@ -5,7 +5,7 @@ c_flags_mac := "-I/opt/local/include"
 ld_flags_mac := "-L/opt/local/lib"
 
 prod_c_flags := "-O2 -flto"
-prod_link := "-Wl,-O2 -flto"
+prod_link := "-Wl,-O2 -flto -Wl,--no-as-needed"
 
 debug_c_flags := "-ggdb -g -Og"
 debug_link := debug_c_flags + " -Wl,--no-as-needed -Wl,--gc-sections -Wl,-z,relro -Wl,-z,now"
