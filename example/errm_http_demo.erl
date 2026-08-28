@@ -20,14 +20,15 @@ start(Port) ->
   Routes = [
     {get, [":path*"], errm_http_file:serve_dir("site-root")},
     {get, ["hello"], fun hello_handler/1},
+    {get, ["echo"], fun echo_query_handler/1},
     {get, ["users", ":id"], fun user_handler/1},
     {get, ["set-cookie", ":value"], fun set_cookie_handler/1},
     {get, ["set-cookie-signed", ":value"], fun set_cookie_signed_handler/1},
     {get, ["get-cookie"], fun get_cookie_handler/1}
   ],
 
-  CORS = errm_http_cors:make(#{
-    origins => "*",
+CORS = errm_http_cors:make(#{
+      origin => "*",
     methods => [get, post, put, delete, patch, options],
     headers => ["Content-Type", "Authorization", "Accept", "Origin"],
     exposed_headers => [],
@@ -58,6 +59,7 @@ start(Port) ->
   io:format("Server started at http://localhost:~B/~n", [Port]),
   io:format("\t GET /                         -> index~n"),
   io:format("\t GET /hello                    -> hello~n"),
+  io:format("\t GET /echo?x=1                 -> Echo the query params~n"),
   io:format("\t GET /users/:id                -> Get a user~n"),
   io:format("\t GET /set-cookie/:value        -> Set a cookie~n"),
   io:format("\t GET /set-cookie-signed/:value -> Set a signed cookie~n"),
@@ -75,6 +77,9 @@ user_handler(#{params := #{"id" := Id}}) ->
   Id1 = binary_to_integer(Id),
   {ok, {200, #{"content-type" => "text/plain"}, io_lib:format("You're currently viewing User: ~w", [Id1])}}.
 
+echo_query_handler(Req) ->
+  Query = maps:get(query, Req, #{}),
+  {ok, {200, #{"content-type" => "text/plain"}, io_lib:format("Query: ~p", [Query])}}.
 
 set_cookie_handler(Req) ->
     Params = maps:get(params, Req, #{}),

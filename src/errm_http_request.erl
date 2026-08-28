@@ -11,8 +11,8 @@ parse(Data) ->
   case split_request_line(Data) of
     {ok, ReqLine, Rest} ->
       case parse_method_path(ReqLine) of
-        {ok, Method, RawPath} ->
-          parse_headers_body(Rest, Method, RawPath);
+        {ok, Method, RawPath, Query} ->
+          parse_headers_body(Rest, Method, RawPath, Query);
         error ->
           {error, bad_request_line}
         end;
@@ -34,13 +34,31 @@ split_request_line(Data) ->
 parse_method_path(Data) ->
   Parts = binary:split(Data, ?SP, [global]),
   case Parts of
-    [MethodBin, <<"/", _/binary>> = RawPath, <<"HTTP/1.", _/binary>>] ->
+    [MethodBin, <<"/", _/binary>> = Target, <<"HTTP/1.", _/binary>>] ->
       case method_from_binary(MethodBin) of
-        {ok, Method} -> {ok, Method, RawPath};
+        {ok, Method} ->
+          {RawPath, Query} = split_query(Target),
+          {ok, Method, RawPath, Query};
         error -> error
       end;
     _ -> error
   end.
+
+split_query(Target) ->
+  case binary:split(Target, <<"?">>) of
+    [Path] -> {Path, #{}};
+    [Path, QueryBin] -> {Path, parse_query(QueryBin)}
+  end.
+
+parse_query(<<>>) -> #{};
+parse_query(Bin) ->
+  Pairs = binary:split(Bin, <<"&">>, [global]),
+  maps:from_list([begin
+                    case binary:split(KV, <<"=">>) of
+                      [K, V] -> {K, V};
+                      [K] -> {K, <<>>}
+                    end
+                  end || KV <- Pairs]).
 
 method_from_binary(Method) ->
     case string:uppercase(Method) of
@@ -54,7 +72,7 @@ method_from_binary(Method) ->
         _          -> error
     end.
 
-parse_headers_body(Data, Method, RawPath) ->
+parse_headers_body(Data, Method, RawPath, Query) ->
   case binary:split(Data, [?CRLF_CRLF]) of
     [HeaderBlock, Body] ->
       RawHeaders = binary:split(HeaderBlock, ?CRLF, [global]),
@@ -73,6 +91,7 @@ parse_headers_body(Data, Method, RawPath) ->
                     method   => Method,
                     raw_path => RawPath,
                     path     => path_segments(RawPath),
+                    query    => Query,
                     headers  => Headers,
                     body     => ActualBody,
                     params   => #{},

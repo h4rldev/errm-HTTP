@@ -13,6 +13,7 @@
   method := method(),
   path := path(),
   raw_path := binary(),
+  query := #{binary() => binary()},
   headers := headers(),
   body := binary(),
   params := #{binary() => binary()},
