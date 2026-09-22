@@ -19,8 +19,8 @@
 
       src = ./.;
 
-      nativeBuildInputs = with pkgs; [pkg-config];
-      buildInputs = with pkgs; [file bash just brotli];
+      nativeBuildInputs = with pkgs; [pkg-config bash just];
+      buildInputs = with pkgs; [file brotli];
       beamDeps = [];
 
       preBuild = ''
@@ -30,6 +30,9 @@
       env = {
         REBAR_PROFILE = "prod";
         ERL_ROOT = "${beamPackages.erlang}/lib/erlang";
+        dontUseJustBuild = "1";
+        dontUseJustInstall = "1";
+        dontUseJustCheck = "1";
       };
     };
 
@@ -39,8 +42,8 @@
 
       src = ./.;
 
-      nativeBuildInputs = with pkgs; [pkg-config];
-      buildInputs = with pkgs; [file bash just brotli];
+      nativeBuildInputs = with pkgs; [pkg-config bash just];
+      buildInputs = with pkgs; [file brotli];
 
       preBuild = ''
         sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
@@ -49,6 +52,9 @@
       env = {
         REBAR_PROFILE = "debug";
         ERL_ROOT = "${beamPackages.erlang}/lib/erlang";
+        dontUseJustBuild = "1";
+        dontUseJustInstall = "1";
+        dontUseJustCheck = "1";
       };
     };
   in {
