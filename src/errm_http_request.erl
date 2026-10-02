@@ -5,9 +5,18 @@
 -define(CRLF, ~"\r\n").
 -define(CRLF_CRLF, ~"\r\n\r\n").
 -define(SP, ~" ").
+-define(MAX_HEADER_BYTES, 65536).
 
 -spec parse(binary()) -> {ok, request(), binary()} | {partial, binary()} | {error, atom()}.
 parse(Data) ->
+  case binary:match(Data, ?CRLF_CRLF) of
+    nomatch when byte_size(Data) > ?MAX_HEADER_BYTES ->
+      {error, request_entity_too_large};
+    _ ->
+      parse_one(Data)
+  end.
+
+parse_one(Data) ->
   case split_request_line(Data) of
     {ok, ReqLine, Rest} ->
       case parse_method_path(ReqLine) of
@@ -21,7 +30,6 @@ parse(Data) ->
     error ->
       {error, bad_request}
   end.
-
 
 split_request_line(Data) ->
   case binary:split(Data, ?CRLF) of
@@ -54,23 +62,23 @@ parse_query(<<>>) -> #{};
 parse_query(Bin) ->
   Pairs = binary:split(Bin, <<"&">>, [global]),
   maps:from_list([begin
-                    case binary:split(KV, <<"=">>) of
-                      [K, V] -> {K, V};
-                      [K] -> {K, <<>>}
-                    end
-                  end || KV <- Pairs]).
+    case binary:split(KV, <<"=">>) of
+      [K, V] -> {K, V};
+      [K] -> {K, <<>>}
+    end
+  end || KV <- Pairs]).
 
 method_from_binary(Method) ->
-    case string:uppercase(Method) of
-        ~"GET"     -> {ok, get};
-        ~"POST"    -> {ok, post};
-        ~"PUT"     -> {ok, put};
-        ~"DELETE"  -> {ok, delete};
-        ~"PATCH"   -> {ok, patch};
-        ~"OPTIONS" -> {ok, options};
-        ~"HEAD"    -> {ok, head};
-        _          -> error
-    end.
+ case string:uppercase(Method) of
+   ~"GET"     -> {ok, get};
+   ~"POST"    -> {ok, post};
+   ~"PUT"     -> {ok, put};
+   ~"DELETE"  -> {ok, delete};
+   ~"PATCH"   -> {ok, patch};
+   ~"OPTIONS" -> {ok, options};
+   ~"HEAD"    -> {ok, head};
+   _          -> error
+ end.
 
 parse_headers_body(Data, Method, RawPath, Query) ->
   case binary:split(Data, [?CRLF_CRLF]) of
@@ -79,13 +87,13 @@ parse_headers_body(Data, Method, RawPath, Query) ->
       case parse_headers(RawHeaders, #{}) of
         {ok, Headers} ->
           CL = maps:get(~"content-length", Headers, ~"0"),
-          case binary_to_integer(CL) of
-            N when N =< byte_size(Body) ->
+          case parse_content_length(CL) of
+            {ok, N} when N =< byte_size(Body) ->
               Max = persistent_term:get({errm_http, max_body_size}, 10_485_760),
               case N > Max of
                 true ->
                   {error, request_entity_too_large};
-                false->
+                false ->
                   <<ActualBody:N/binary, Rest/binary>> = Body,
                   Req = #{
                     method   => Method,
@@ -99,8 +107,10 @@ parse_headers_body(Data, Method, RawPath, Query) ->
                   },
                   {ok, Req, Rest}
               end;
-            _NeedMore ->
-              {partial, Data}
+            {ok, _} ->
+              {partial, Data};
+            error ->
+              {error, bad_request}
           end;
         {error, Reason} ->
           {error, Reason}
@@ -120,6 +130,13 @@ parse_headers([Line | Rest], Acc) ->
       {error, bad_header}
   end;
 parse_headers([], Acc) -> {ok, Acc}.
+
+parse_content_length(Bin) ->
+  try binary_to_integer(Bin) of
+    N when N >= 0 -> {ok, N};
+    _ -> error
+  catch _:_ -> error
+  end.
 
 path_segments(~"/") -> [];
 path_segments(<<"/", Path/binary>>) ->

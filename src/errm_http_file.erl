@@ -257,12 +257,10 @@ safe_join(Root, Path) ->
     false -> false
   end.
 
-safe_path(Root, Path) ->
-  AbsRoot = filename:absname(Root),
-  AbsPath = filename:absname(Path),
-  RootParts = filename:split(AbsRoot),
-  PathParts = filename:split(AbsPath),
-  lists:prefix(RootParts, PathParts).
+safe_path(Root, FullPath) ->
+  RootParts = filename:split(Root),
+  Parts = filename:split(FullPath),
+  not lists:member("..", Parts) andalso lists:prefix(RootParts, Parts).
 
 detect_mime(Path) ->
   Ext = case filename:extension(Path) of

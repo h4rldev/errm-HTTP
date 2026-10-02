@@ -44,7 +44,7 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
           {upgraded, Rest};
         _ ->
           send_response(Sock, ErrorHandlers, Result, Request2),
-          Conn = maps:get(connection, maps:get(headers, Request2, #{}), keep_alive),
+          Conn = maps:get(<<"connection">>, maps:get(headers, Request2, #{}), keep_alive),
           case normalize_conn(Conn) of
             keep_alive -> {continue, Rest};
             close -> {close, Rest}

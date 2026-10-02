@@ -55,7 +55,7 @@ static erl_nif_term_t nif_compress(erl_nif_env_t *env, i32 argc,
   if (level > BROTLI_MAX_QUALITY)
     level = BROTLI_MAX_QUALITY;
 
-  u64 max_compressed_size = input.size + (input.size >> 11) + 16;
+  u64 max_compressed_size = BrotliEncoderMaxCompressedSize(input.size);
   if (max_compressed_size < 256)
     max_compressed_size = 256;
 
@@ -125,6 +125,7 @@ static erl_nif_term_t nif_decompress(erl_nif_env_t *env, i32 argc,
     return enif_make_badarg(env);
   }
 
+  const u64 max_out = (u64)64 * 1024 * 1024;
   u64 out_size = 4096;
   u8 *out = enif_alloc(out_size);
   if (!out)
@@ -140,26 +141,18 @@ static erl_nif_term_t nif_decompress(erl_nif_env_t *env, i32 argc,
 
   const u8 *next_in = input.data;
   u64 available_in = input.size;
-  u64 available_out = out_size;
-  u8 *next_out = out;
+  u64 used = 0;
+  br_dec_result_t res = BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT;
 
-  br_dec_result_t res;
-
-  for (;;) {
-    next_out = out + (out_size - available_out);
-    available_out = out_size - available_out;
-    res = BrotliDecoderDecompressStream(state, &available_in, &next_in,
-                                        &available_out, &next_out, null);
-
-    if (res == BROTLI_DECODER_RESULT_ERROR) {
-      BrotliDecoderDestroyInstance(state);
-      enif_free(out);
-      return make_error(
-          env, "errm_http_brotli_nif: decompress: brotli decompression failed");
-    }
-
-    if (res == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) {
+  while (res == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) {
+    if (used == out_size) {
+      if (out_size >= max_out) {
+        res = BROTLI_DECODER_RESULT_ERROR;
+        break;
+      }
       u64 new_size = out_size * 2;
+      if (new_size > max_out)
+        new_size = max_out;
       u8 *new_out = enif_realloc(out, new_size);
       if (!new_out) {
         BrotliDecoderDestroyInstance(state);
@@ -167,33 +160,34 @@ static erl_nif_term_t nif_decompress(erl_nif_env_t *env, i32 argc,
         return make_error(env,
                           "errm_http_brotli_nif: decompress: out of memory");
       }
-
       out = new_out;
       out_size = new_size;
-      continue;
     }
 
-    break;
+    u8 *next_out = out + used;
+    u64 available_out = out_size - used;
+    res = BrotliDecoderDecompressStream(state, &available_in, &next_in,
+                                        &available_out, &next_out, null);
+    used = out_size - available_out;
   }
 
   if (res != BROTLI_DECODER_RESULT_SUCCESS) {
     BrotliDecoderDestroyInstance(state);
     enif_free(out);
     return make_error(
-        env,
-        "errm_http_brotli_nif: decompress: brotli decompression incomplete");
+        env, "errm_http_brotli_nif: decompress: brotli decompression failed");
   }
 
-  u64 final_size = out_size - available_out;
   BrotliDecoderDestroyInstance(state);
 
-  if (!enif_alloc_binary(final_size, &output)) {
+  if (!enif_alloc_binary(used, &output)) {
     enif_free(out);
     return make_error(
         env, "errm_http_brotli_nif: decompress: binary allocation failed");
   }
 
-  memcpy(output.data, out, final_size);
+  if (used > 0)
+    memcpy(output.data, out, used);
   enif_free(out);
 
   return enif_make_tuple2(env, enif_make_atom(env, "ok"),

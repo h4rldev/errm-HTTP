@@ -107,3 +107,30 @@ cors_origin_denied_test() ->
             body => <<>>, params => #{}, peer => {{127,0,0,1},12345}, cookies => #{}},
     {ok, {200, Headers, _}} = CORS(Req, fun(_Req) -> {ok, {200, #{}, ~"body"}} end),
     ?assertNot(maps:is_key(~"access-control-allow-origin", Headers)).
+
+file_serve_dir_blocks_traversal_test() ->
+    errm_http_file:init_mime_cache(),
+    Base = filename:join(tmp_dir(), "errm_http_test_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    Root = filename:join(Base, "root"),
+    ok = file:make_dir(Base),
+    ok = file:make_dir(Root),
+    ok = file:write_file(filename:join(Base, "secret.txt"), ~"top secret"),
+    ok = file:write_file(filename:join(Root, "hello.txt"), ~"public"),
+    Handler = errm_http_file:serve_dir(Root, ["index.html"]),
+    try
+        ?assertMatch({ok, {200, _, ~"public"}},
+            Handler(#{params => #{"path" => ~"hello.txt"}, headers => #{}})),
+        ?assertEqual({error, not_found},
+            Handler(#{params => #{"path" => ~"../secret.txt"}, headers => #{}}))
+    after
+        file:delete(filename:join(Root, "hello.txt")),
+        file:delete(filename:join(Base, "secret.txt")),
+        file:del_dir(Root),
+        file:del_dir(Base)
+    end.
+
+tmp_dir() ->
+    case os:getenv("TMPDIR") of
+        false -> "/tmp";
+        Dir -> Dir
+    end.

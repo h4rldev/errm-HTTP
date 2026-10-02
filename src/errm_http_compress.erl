@@ -49,6 +49,7 @@ decompress() -> decompress(#{}).
 -spec decompress(DecompressionOptions :: decompress_opts()) -> DecompressionMiddleware :: middleware().
 decompress(DecompressionOptions) ->
   Allowed = maps:get(allowed, DecompressionOptions, ?AVAILABLE_ENCODINGS),
+  MaxSize = maps:get(max_size, DecompressionOptions, 16#1000000),
   fun(Req, Next) ->
       case maps:get(<<"content-encoding">>, maps:get(headers, Req), undefined) of
         undefined -> Next(Req);
@@ -56,7 +57,7 @@ decompress(DecompressionOptions) ->
           Encoding = encoding_atom(Enc),
           case lists:member(Encoding, Allowed) of
             true ->
-              case decompress_body(Encoding, maps:get(body, Req)) of
+              case decompress_body(Encoding, maps:get(body, Req), MaxSize) of
                 {ok, Body} ->
                   Req1 = Req#{body => Body, headers => maps:remove(<<"content-encoding">>, maps:get(headers, Req))},
                   Next(Req1);
@@ -238,43 +239,45 @@ compress_body(brotli, Data, Level) ->
       error
   end.
 
-decompress_body(gzip, Data) ->
-  try
-    Z = zlib:open(),
-    ok = zlib:inflateInit(Z, 31),
-    Decompressed = zlib:inflate(Z, Data),
-    ok = zlib:inflateEnd(Z),
-    {ok, Decompressed}
+decompress_body(gzip, Data, Max) -> inflate_bounded(31, Data, Max);
+decompress_body(deflate, Data, Max) -> inflate_bounded(15, Data, Max);
+decompress_body(zstd, Data, Max) ->
+  try zstd:decompress(Data) of
+    Decompressed when byte_size(Decompressed) =< Max -> {ok, Decompressed};
+    _ -> error
   catch _:_ -> error
   end;
-decompress_body(deflate, Data) ->
-  try
-    Z = zlib:open(),
-    ok = zlib:inflateInit(Z, 15),
-    Decompressed = zlib:inflate(Z, Data),
-    ok = zlib:inflateEnd(Z),
-    {ok, Decompressed}
-  catch _:_ -> error
-  end;
-decompress_body(zstd, Data) ->
-  try
-    Decompressed = zstd:decompress(Data),
-    {ok, Decompressed}
-  catch _:_ -> error
-  end;
-decompress_body(brotli, Data) ->
+decompress_body(brotli, Data, Max) ->
   try errm_http_brotli_nif:decompress(Data) of
-    {ok, Decompressed} -> {ok, Decompressed};
+    {ok, Decompressed} when byte_size(Decompressed) =< Max -> {ok, Decompressed};
+    {ok, _} ->
+      logger:error("brotli decompression exceeded max size"),
+      error;
     {error, Reason} ->
       logger:error("brotli decompression failed: ~p~n", [Reason]),
       error
   catch
-    error:nif_error ->
-      logger:error("brotli NIF not available~n"),
-      error;
-    error:not_loaded ->
-      logger:error("brotli NIF not available~n"),
-      error
+    error:nif_error -> logger:error("brotli NIF not available~n"), error;
+    error:not_loaded -> logger:error("brotli NIF not available~n"), error
+  end.
+
+inflate_bounded(WindowBits, Data, Max) ->
+  Z = zlib:open(),
+  ok = zlib:inflateInit(Z, WindowBits),
+  Result = inflate_loop(Z, Data, Max, [], 0),
+  zlib:close(Z),
+  Result.
+
+inflate_loop(Z, Input, Max, Acc, Size) ->
+  {Tag, Out} = zlib:safeInflate(Z, Input),
+  NewSize = Size + iolist_size(Out),
+  case NewSize > Max of
+    true -> error;
+    false ->
+      case Tag of
+        continue -> inflate_loop(Z, [], Max, [Acc, Out], NewSize);
+        finished -> {ok, iolist_to_binary([Acc, Out])}
+      end
   end.
 
 map_level(gzip, Level) -> clamp(Level, 0, 9);
