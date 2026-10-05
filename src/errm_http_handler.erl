@@ -9,18 +9,24 @@ handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers) ->
   request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, <<>>).
 
 request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Buffer) ->
+  case handle_data(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Buffer) of
+    {continue, Rest} when Rest =/= <<>> ->
+      request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Rest);
+    {continue, _} ->
+      wait_for_data(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, <<>>);
+    {need_more, Partial} ->
+      wait_for_data(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Partial);
+    {close, _Rest} ->
+      gen_tcp:close(ClientSock);
+    {upgraded, _Rest} ->
+      ok
+  end.
+
+wait_for_data(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Buffer) ->
+  ok = inet:setopts(ClientSock, [{active, once}]),
   receive
     {tcp, Sock, Data} ->
-      NewBuffer = <<Buffer/binary, Data/binary>>,
-      case handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, NewBuffer) of
-        {continue, Rest} ->
-          inet:setopts(Sock, [{active, once}]),
-          request_loop(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers, Rest);
-        {upgraded, _Rest} ->
-          ok;
-        {close, _Rest} ->
-          gen_tcp:close(Sock)
-      end;
+      request_loop(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, <<Buffer/binary, Data/binary>>);
     {tcp_closed, _Sock} ->
       ok;
     {tcp_error, Sock, closed} ->
@@ -51,7 +57,7 @@ handle_data(Sock, Peer, RouteTree, Middlewares, ErrorHandlers, Data) ->
           end
       end;
     {partial, _} ->
-      {continue, Data};
+      {need_more, Data};
     {error, request_entity_too_large} ->
       send_response(Sock, ErrorHandlers, {error, request_entity_too_large}, undefined),
       {close, Data};
@@ -98,12 +104,11 @@ send_response(Sock, _ErrorHandlers, {ok, {Status, Headers, Body}}, _Request) ->
       send_file_with_correct_length(Sock, Status, Headers, FilePath);
     _ when is_binary(Body); is_list(Body) ->
       BodySize = iolist_size(Body),
-      Normalized = normalize_headers(Headers),
-      HasTE = maps:is_key(<<"transfer-encoding">>, Normalized),
-      HasCL = maps:is_key(<<"content-length">>, Normalized),
+      HasTE = header_present(~"transfer-encoding", Headers),
+      HasCL = header_present(~"content-length", Headers),
       case not HasTE andalso not HasCL andalso BodySize >= ?ERRM_CHUNK_THRESHOLD of
         true ->
-          gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
+          gen_tcp:send(Sock, errm_http_response:build_chunked_headers(Status, Headers)),
           send_chunked(Sock, iolist_to_binary(Body), 4096),
           gen_tcp:send(Sock, errm_http_response:final_chunk());
         false ->
@@ -119,12 +124,11 @@ send_response(Sock, ErrorHandler, {error, Reason}, Request) ->
       case Handler(Request) of
         {ok, {Status, Headers, Body}} ->
           BodySize = iolist_size(Body),
-          Normalized = normalize_headers(Headers),
-          HasTE = maps:is_key(~"transfer-encoding", Normalized),
-          HasCL = maps:is_key(~"content-length", Normalized),
+          HasTE = header_present(~"transfer-encoding", Headers),
+          HasCL = header_present(~"content-length", Headers),
           case not HasTE andalso not HasCL andalso BodySize >= 8192 of
             true ->
-              gen_tcp:send(Sock, errm_http_response:build_headers(Status, Headers, BodySize)),
+              gen_tcp:send(Sock, errm_http_response:build_chunked_headers(Status, Headers)),
               send_chunked(Sock, iolist_to_binary(Body), 4096),
               gen_tcp:send(Sock, errm_http_response:final_chunk());
             false ->
@@ -134,6 +138,25 @@ send_response(Sock, ErrorHandler, {error, Reason}, Request) ->
           send_default_error(Sock, Reason)
       end
   end.
+
+header_present(Name, Headers) ->
+  case maps:is_key(Name, Headers) of
+    true -> true;
+    false -> lists:any(fun(K) -> normalize_header_key(K) =:= Name end, maps:keys(Headers))
+  end.
+
+normalize_header_key(K) when is_binary(K) -> lowercase_bin(K);
+normalize_header_key(K) -> string:lowercase(iolist_to_binary(K)).
+
+lowercase_bin(K) ->
+  case has_upper(K) of
+    true -> string:lowercase(K);
+    false -> K
+  end.
+
+has_upper(<<C, _/binary>>) when C >= $A, C =< $Z -> true;
+has_upper(<<_, Rest/binary>>) -> has_upper(Rest);
+has_upper(<<>>) -> false.
 
 -spec sendfile(gen_tcp:socket(), file:filename_all(), non_neg_integer(), non_neg_integer()) -> ok.
 sendfile(Sock, FilePath, Offset, Count) ->
@@ -162,13 +185,15 @@ sendfile_loop(Sock, Fd, Offset, Count) ->
 
 
 normalize_conn(Conn) when is_binary(Conn) ->
-  case string:lowercase(Conn) of
+  case Conn of
     ~"close" -> close;
-    _           -> keep_alive
+    ~"Close" -> close;
+    _        -> keep_alive
   end;
 normalize_conn(Conn) when is_list(Conn) ->
-  case string:lowercase(Conn) of
+  case Conn of
     "close" -> close;
+    "Close" -> close;
     _       -> keep_alive
   end;
 normalize_conn(Atom) when is_atom(Atom) ->
@@ -189,14 +214,6 @@ send_chunked(Sock, Body, ChunkSize) ->
       gen_tcp:send(Sock, errm_http_response:encode_chunk(Chunk)),
       send_chunked(Sock, Rest, ChunkSize)
   end.
-
-normalize_headers(Headers) ->
-  maps:fold(fun(K, V, Acc) ->
-    Acc#{string:lowercase(to_binary(K)) => to_binary(V)}
-  end, #{}, Headers).
-
-to_binary(S) when is_list(S) -> list_to_binary(S);
-to_binary(S) -> S.
 
 send_default_error(Sock, not_found) ->
   B = <<"Not Found">>,

@@ -7,11 +7,13 @@ accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers) ->
   case gen_tcp:accept(ListenSock) of
     {ok, ClientSock} ->
       Peer = peer_address(ClientSock),
-      ok = inet:setopts(ClientSock, [{active, once}, {packet, raw}, {nodelay, true}]),
       HandlerPid = spawn_link(fun() ->
-        errm_http_handler:handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers) end),
+        receive go -> ok end,
+        errm_http_handler:handle_connection(ClientSock, Peer, RouteTree, Middlewares, ErrorHandlers)
+      end),
 
-      gen_tcp:controlling_process(ClientSock, HandlerPid),
+      ok = gen_tcp:controlling_process(ClientSock, HandlerPid),
+      HandlerPid ! go,
       accept_loop(ListenSock, RouteTree, Middlewares, ErrorHandlers);
     {error, Reason} ->
       logger:error("[errm] Error accepting connection: ~p", [Reason]),

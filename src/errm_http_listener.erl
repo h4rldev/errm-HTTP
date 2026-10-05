@@ -34,7 +34,7 @@ init(Options) ->
     SName     -> [server_middleware(SName) | MW0]
   end,
 
-  case gen_tcp:listen(Port, [binary, {packet, raw}, {active, false}, {reuseaddr, true}, {nodelay, true}, {send_timeout, 30000}, {keepalive, true}, {backlog, 1024}]) of
+  case gen_tcp:listen(Port, [binary, {packet, raw}, {active, false}, {reuseaddr, true}, {nodelay, true}, {send_timeout, 30000}, {keepalive, true}, {backlog, 1024}, {buffer, 65536}]) of
     {ok, ListenSock} ->
       {ok, ActualPort} = inet:port(ListenSock),
       logger:debug("[errm] Listening on port: ~p with ~p acceptors", [ActualPort, AcqCount]),
@@ -83,10 +83,16 @@ server_middleware(Server) ->
     fun(_Req, Next) ->
         case Next(_Req) of
             {ok, {Status, Headers, Body}} ->
-                case maps:is_key("server", Headers) of
+                case has_server_header(Headers) of
                     true   -> {ok, {Status, Headers, Body}};
-                    false  -> {ok, {Status, Headers#{"server" => Server}, Body}}
+                    false  -> {ok, {Status, Headers#{<<"server">> => Server}, Body}}
                 end;
             Other -> Other
         end
     end.
+
+has_server_header(Headers) ->
+    maps:is_key(<<"server">>, Headers)
+    orelse maps:is_key(<<"Server">>, Headers)
+    orelse maps:is_key("server", Headers)
+    orelse maps:is_key("Server", Headers).
