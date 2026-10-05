@@ -15,6 +15,35 @@ parse_partial_test() ->
     Data = ~"GET /hello HTTP/1.1\r\n",
     {partial, <<>>} = errm_http_request:parse(Data).
 
+parse_post_chunked_body_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n20\r\n0\r\n\r\n",
+    {ok, #{method := post, body := ~"20", path := [~"echo"]}, <<>>} = errm_http_request:parse(Data).
+
+parse_chunked_multiple_chunks_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
+    {ok, #{body := ~"hello world"}, <<>>} = errm_http_request:parse(Data).
+
+parse_chunked_extensions_and_trailers_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n2;foo=bar\r\n20\r\n0\r\nX-Trailer: done\r\n\r\n",
+    {ok, #{body := ~"20"}, <<>>} = errm_http_request:parse(Data).
+
+parse_chunked_partial_data_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhe",
+    {partial, _} = errm_http_request:parse(Data).
+
+parse_chunked_keeps_pipelined_request_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n20\r\n0\r\n\r\nGET /next HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    {ok, #{body := ~"20"}, Rest} = errm_http_request:parse(Data),
+    {ok, #{method := get, path := [~"next"]}, <<>>} = errm_http_request:parse(Rest).
+
+parse_chunked_takes_precedence_over_content_length_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 99\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n20\r\n0\r\n\r\n",
+    {ok, #{body := ~"20"}, <<>>} = errm_http_request:parse(Data).
+
+parse_bad_chunk_size_test() ->
+    Data = ~"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n\r\n",
+    ?assertMatch({error, _}, errm_http_request:parse(Data)).
+
 parse_bad_method_test() ->
     Data = ~"INVALID /path HTTP/1.1\r\n\r\n",
     {error, bad_request_line} = errm_http_request:parse(Data).

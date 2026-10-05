@@ -86,29 +86,24 @@ parse_headers_body(Data, Method, RawPath, Query) ->
       RawHeaders = binary:split(HeaderBlock, ?CRLF, [global]),
       case parse_headers(RawHeaders, #{}) of
         {ok, Headers} ->
-          CL = maps:get(~"content-length", Headers, ~"0"),
-          case parse_content_length(CL) of
-            {ok, N} when N =< byte_size(Body) ->
-              Max = persistent_term:get({errm_http, max_body_size}, 10_485_760),
-              case N > Max of
-                true ->
-                  {error, request_entity_too_large};
-                false ->
-                  <<ActualBody:N/binary, Rest/binary>> = Body,
-                  Req = #{
-                    method   => Method,
-                    raw_path => RawPath,
-                    path     => path_segments(RawPath),
-                    query    => Query,
-                    headers  => Headers,
-                    body     => ActualBody,
-                    params   => #{},
-                    peer     => undefined
-                  },
-                  {ok, Req, Rest}
+          Max = persistent_term:get({errm_http, max_body_size}, 10_485_760),
+          case body_framing(Headers) of
+            chunked ->
+              case decode_chunked(Body, Max) of
+                {ok, ActualBody, Rest} ->
+                  {ok, build_request(Method, RawPath, Query, Headers, ActualBody), Rest};
+                more ->
+                  {partial, Data};
+                {error, Reason} ->
+                  {error, Reason}
               end;
-            {ok, _} ->
+            {content_length, N} when N > byte_size(Body) ->
               {partial, Data};
+            {content_length, N} when N > Max ->
+              {error, request_entity_too_large};
+            {content_length, N} ->
+              <<ActualBody:N/binary, Rest/binary>> = Body,
+              {ok, build_request(Method, RawPath, Query, Headers, ActualBody), Rest};
             error ->
               {error, bad_request}
           end;
@@ -117,6 +112,82 @@ parse_headers_body(Data, Method, RawPath, Query) ->
       end;
     [_NoCRLFCRLF] ->
       {partial, Data}
+  end.
+
+body_framing(Headers) ->
+  case maps:get(~"transfer-encoding", Headers, undefined) of
+    undefined ->
+      case parse_content_length(maps:get(~"content-length", Headers, ~"0")) of
+        {ok, N} -> {content_length, N};
+        error -> error
+      end;
+    TransferEncoding ->
+      case binary:match(string:lowercase(TransferEncoding), ~"chunked") of
+        nomatch -> error;
+        _ -> chunked
+      end
+  end.
+
+build_request(Method, RawPath, Query, Headers, Body) ->
+  #{
+    method   => Method,
+    raw_path => RawPath,
+    path     => path_segments(RawPath),
+    query    => Query,
+    headers  => Headers,
+    body     => Body,
+    params   => #{},
+    peer     => undefined
+  }.
+
+decode_chunked(Data, Max) ->
+  decode_chunked(Data, [], 0, Max).
+
+decode_chunked(Data, Acc, Size, Max) ->
+  case binary:split(Data, ?CRLF) of
+    [SizeLine, Rest] ->
+      case parse_chunk_size(SizeLine) of
+        {ok, 0} ->
+          case skip_trailers(Rest) of
+            {ok, Rest2} -> {ok, iolist_to_binary(lists:reverse(Acc)), Rest2};
+            more -> more
+          end;
+        {ok, N} when Size + N > Max ->
+          {error, request_entity_too_large};
+        {ok, N} when N =< byte_size(Rest) ->
+          <<Chunk:N/binary, After/binary>> = Rest,
+          case After of
+            <<13, 10, Rest2/binary>> ->
+              decode_chunked(Rest2, [Chunk | Acc], Size + N, Max);
+            _ when byte_size(After) < 2 ->
+              more;
+            _ ->
+              {error, bad_request}
+          end;
+        {ok, _N} ->
+          more;
+        error ->
+          {error, bad_request}
+      end;
+    [_] ->
+      more
+  end.
+
+parse_chunk_size(Line) ->
+  SizePart = hd(binary:split(Line, ~";")),
+  try binary_to_integer(string:trim(SizePart), 16) of
+    N when N >= 0 -> {ok, N};
+    _ -> error
+  catch _:_ -> error
+  end.
+
+skip_trailers(<<13, 10, Rest/binary>>) -> {ok, Rest};
+skip_trailers(Bin) ->
+  case binary:match(Bin, ?CRLF) of
+    nomatch -> more;
+    {Pos, _} ->
+      <<_Trailer:Pos/binary, 13, 10, Rest/binary>> = Bin,
+      skip_trailers(Rest)
   end.
 
 parse_headers([~""], Acc) -> {ok, Acc};
