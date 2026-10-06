@@ -78,7 +78,7 @@ serve_dir(Root, IndexFiles) ->
       {ok, FullPath} ->
         case file:read_file_info(FullPath) of
           {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
-            serve_existing_file(FullPath, Size);
+            serve_best(FullPath, Size, Req, RootStr);
           {ok, #file_info{type = directory}} ->
             try_index_with_fallback(RootStr, FullPath, IndexStrs, Req);
           {error, enoent} ->
@@ -104,7 +104,7 @@ serve_dir(Root, IndexFiles, Fallback) ->
       {ok, FullPath} ->
         case file:read_file_info(FullPath) of
           {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
-            serve_existing_file(FullPath, Size);
+            serve_best(FullPath, Size, Req, RootStr);
           {ok, #file_info{type = directory}} ->
             try_index_with_fallback(RootStr, FullPath, IndexStrs, Req);
           {error, enoent} ->
@@ -161,6 +161,13 @@ serve_existing_file(Path, Size) ->
     {ok, {200, Headers, {file, Path}}}
   end.
 
+-spec serve_best(file:filename_all(), non_neg_integer(), request(), string()) -> route_result().
+serve_best(FullPath, Size, Req, RootStr) ->
+  case serve_compressed_variant(FullPath, Req, RootStr, []) of
+    {ok, _} = Resp -> Resp;
+    _ -> serve_existing_file(FullPath, Size)
+  end.
+
 -spec serve_compressed_variant(file:filename_all(), request(), string(), [string()]) -> route_result().
 serve_compressed_variant(FullPath0, Req, RootStr, IndexStrs) ->
   FullPath = to_string(FullPath0),
@@ -211,6 +218,7 @@ find_first_matching_variant(ClientEncodings, Variants, FullPath) ->
     {value, {Enc, Ext}} -> {ok, FullPath ++ Ext, Enc};
     false -> false
   end.
+
 try_index_with_fallback(RootStr, DirPath, IndexStrs, Req) ->
   try_index_with_threshold(RootStr, DirPath, IndexStrs, Req).
 
@@ -220,7 +228,7 @@ try_index_with_threshold(RootStr, DirPath, [Index | Rest], Req) ->
   FullPath = filename:join([DirPath, Index]),
   case safe_path(RootStr, FullPath) andalso file:read_file_info(FullPath) of
     {ok, #file_info{type = regular, size = Size}} when is_integer(Size), Size >= 0 ->
-      serve_existing_file(FullPath, Size);
+      serve_best(FullPath, Size, Req, RootStr);
     {ok, #file_info{type = directory}} ->
       try_index_with_threshold(RootStr, DirPath, Rest, Req);
     {error, enoent} ->

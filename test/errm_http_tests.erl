@@ -137,6 +137,36 @@ cors_origin_denied_test() ->
     {ok, {200, Headers, _}} = CORS(Req, fun(_Req) -> {ok, {200, #{}, ~"body"}} end),
     ?assertNot(maps:is_key(~"access-control-allow-origin", Headers)).
 
+file_serve_dir_prefers_compressed_variant_test() ->
+    errm_http_file:init_mime_cache(),
+    Base = filename:join(tmp_dir(), "errm_http_test_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    Root = filename:join(Base, "root"),
+    ok = file:make_dir(Base),
+    ok = file:make_dir(Root),
+    Plain = ~"body{color:red}",
+    Brotli = <<1, 2, 3, 4, 5>>,
+    ok = file:write_file(filename:join(Root, "app.css"), Plain),
+    ok = file:write_file(filename:join(Root, "app.css.br"), Brotli),
+    Handler = errm_http_file:serve_dir(Root, ["index.html"], "200.html"),
+    try
+        ?assertMatch(
+            {ok, {200, #{~"content-encoding" := ~"br"}, Brotli}},
+            Handler(#{params => #{"path" => ~"app.css"},
+                      headers => #{~"accept-encoding" => ~"gzip, deflate, br"}})),
+        {ok, {200, HeadersPlain, Plain}} =
+            Handler(#{params => #{"path" => ~"app.css"}, headers => #{}}),
+        ?assertNot(maps:is_key(~"content-encoding", HeadersPlain)),
+        {ok, {200, HeadersGzip, Plain}} =
+            Handler(#{params => #{"path" => ~"app.css"},
+                      headers => #{~"accept-encoding" => ~"gzip"}}),
+        ?assertNot(maps:is_key(~"content-encoding", HeadersGzip))
+    after
+        file:delete(filename:join(Root, "app.css.br")),
+        file:delete(filename:join(Root, "app.css")),
+        file:del_dir(Root),
+        file:del_dir(Base)
+    end.
+
 file_serve_dir_blocks_traversal_test() ->
     errm_http_file:init_mime_cache(),
     Base = filename:join(tmp_dir(), "errm_http_test_" ++ integer_to_list(erlang:unique_integer([positive]))),
